@@ -462,7 +462,11 @@ void init()
         {
             glGenBuffers(1, &sp_mat_ubo[i][j]);
             glBindBuffer(GL_UNIFORM_BUFFER, sp_mat_ubo[i][j]);
-            glBufferData(GL_UNIFORM_BUFFER, (16 * 9 + 2) * sizeof(float), NULL,
+            // 9 mat4 (144 floats) + vec2 u_screen padded to vec4 in std140 (4 floats)
+            // = 148 floats / 592 bytes. WebGL2 enforces std140 strictly; native GL
+            // does not. Host-side array stays 146 floats (see shadow_matrices.hpp);
+            // the trailing 8 bytes of the GL buffer are left as their initial zeros.
+            glBufferData(GL_UNIFORM_BUFFER, (16 * 9 + 4) * sizeof(float), NULL,
                 GL_DYNAMIC_DRAW);
         }
     }
