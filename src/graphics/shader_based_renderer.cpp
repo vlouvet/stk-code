@@ -404,6 +404,12 @@ void ShaderBasedRenderer::renderSceneDeferred(scene::ICameraSceneNode * const ca
         PROFILER_PUSH_CPU_MARKER("- Particles and text billboard", 0xFF, 0xFF,
             0x00);
         ScopedGPUTimer Timer(irr_driver->getGPUTimer(Q_PARTICLES));
+        // Soft particles sample the depth-stencil texture as `dtex` to fade
+        // where they meet geometry; detach the depth attachment so WebGL2
+        // doesn't reject those draws as feedback loops. Side effect: depth
+        // testing against scene geometry no longer applies to particles, so
+        // they may draw on top of occluders.
+        m_rtts->getFBO(FBO_COLORS).bindWithoutDepth();
         CPUParticleManager::getInstance()->drawAll();
         TextBillboardDrawer::drawAll();
         PROFILER_POP_CPU_MARKER();
