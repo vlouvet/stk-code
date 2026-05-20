@@ -103,34 +103,31 @@ void SPTextureManager::checkForGLCommand(bool before_scene)
     {
         return;
     }
-    while (true)
+    // Process every command currently in the queue once, then return.
+    // Anything that returns false (not yet ready) is re-queued and retried
+    // on a later frame. On Emscripten the main thread MUST return to the JS
+    // event loop between frames — the previous code's busy-wait
+    // (sleep_for+continue when before_scene && count != 0) deadlocked because
+    // the worker callbacks that signal "texture ready" can only run after the
+    // main thread yields back to the browser. The before_scene argument is
+    // therefore now ignored — callers will see partial progress and re-poll.
+    (void)before_scene;
+    const size_t initial = [&] {
+        std::lock_guard<std::mutex> lock(m_gl_cmd_mutex);
+        return m_gl_cmd_functions.size();
+    }();
+    for (size_t i = 0; i < initial; i++)
     {
         std::unique_lock<std::mutex> ul(m_gl_cmd_mutex);
         if (m_gl_cmd_functions.empty())
-        {
-            if (before_scene && m_gl_cmd_function_count.load() != 0)
-            {
-                ul.unlock();
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                continue;
-            }
-            else
-            {
-                return;
-            }
-        }
+            return;
         std::function<bool()> gl_cmd = m_gl_cmd_functions.front();
         m_gl_cmd_functions.pop_front();
         ul.unlock();
-        // if return false, re-added it to the back
         if (gl_cmd() == false)
         {
             std::lock_guard<std::mutex> lock(m_gl_cmd_mutex);
             m_gl_cmd_functions.push_back(gl_cmd);
-            if (!before_scene)
-            {
-                return;
-            }
         }
         else
         {
