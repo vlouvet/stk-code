@@ -277,7 +277,9 @@ void ShaderBasedRenderer::renderSceneDeferred(scene::ICameraSceneNode * const ca
     // Lights
     {
         PROFILER_PUSH_CPU_MARKER("- Light", 0x00, 0xFF, 0x00);
-        m_rtts->getFBO(FBO_COMBINED_DIFFUSE_SPECULAR).bind();
+        // renderLights samples the depth-stencil texture as `dtex`; detach the
+        // depth attachment so WebGL2 doesn't reject the draw as a feedback loop.
+        m_rtts->getFBO(FBO_COMBINED_DIFFUSE_SPECULAR).bindWithoutDepth();
         glClear(GL_COLOR_BUFFER_BIT);
         GLuint specular_probe = 0;
         if (m_skybox)
@@ -323,7 +325,11 @@ void ShaderBasedRenderer::renderSceneDeferred(scene::ICameraSceneNode * const ca
         PROFILER_POP_CPU_MARKER();
     } // end glow
 
-    m_rtts->getFBO(FBO_COLORS).bind();
+    // CombineDiffuseColor samples the depth-stencil texture as `depth_stencil`
+    // (unit 4); detach the depth attachment to avoid a WebGL2 feedback loop.
+    // It is reattached below before the skybox/transparent passes, which need
+    // depth-testing against the previously-written depth.
+    m_rtts->getFBO(FBO_COLORS).bindWithoutDepth();
     glClear(UserConfigParams::m_glow ? GL_COLOR_BUFFER_BIT :
         GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
@@ -363,6 +369,12 @@ void ShaderBasedRenderer::renderSceneDeferred(scene::ICameraSceneNode * const ca
         glDepthMask(GL_TRUE);
         m_rtts->getFBO(FBO_NORMAL_AND_DEPTHS).bind();
         SP::drawSPDebugView();
+        m_rtts->getFBO(FBO_COLORS).bind();
+    }
+    else
+    {
+        // Reattach the depth-stencil that bindWithoutDepth() detached, so the
+        // skybox/transparent/particle passes below can depth-test correctly.
         m_rtts->getFBO(FBO_COLORS).bind();
     }
 

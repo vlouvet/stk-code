@@ -42,6 +42,13 @@ protected:
 
     unsigned m_height = 0;
 
+    // Set when bindWithoutDepth() has detached the depth-stencil attachment.
+    // The next bind() reattaches it. WebGL2 forbids sampling a texture that is
+    // also a current FBO attachment (the deferred renderer samples the
+    // depth-stencil texture as `dtex` from passes whose write target is an
+    // FBO that has the same texture attached as depth-stencil).
+    mutable bool m_depth_detached = false;
+
 public:
     LEAK_CHECK()
     // ------------------------------------------------------------------------
@@ -97,6 +104,31 @@ public:
     {
         glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
         glViewport(0, 0, (int)m_width, (int)m_height);
+        if (m_depth_detached && m_depth_texture != 0)
+        {
+            glFramebufferTexture2D(GL_FRAMEBUFFER,
+                GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D,
+                m_depth_texture, 0);
+            m_depth_detached = false;
+        }
+        GLenum bufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1,
+            GL_COLOR_ATTACHMENT2 };
+        glDrawBuffers((int)m_render_targets.size(), bufs);
+    }
+    // ------------------------------------------------------------------------
+    // Bind the FBO and detach the depth-stencil attachment so the depth
+    // texture can be safely sampled in the next draw. Subsequent bind()
+    // calls reattach the depth automatically.
+    void bindWithoutDepth() const
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+        glViewport(0, 0, (int)m_width, (int)m_height);
+        if (!m_depth_detached && m_depth_texture != 0)
+        {
+            glFramebufferTexture2D(GL_FRAMEBUFFER,
+                GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+            m_depth_detached = true;
+        }
         GLenum bufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1,
             GL_COLOR_ATTACHMENT2 };
         glDrawBuffers((int)m_render_targets.size(), bufs);
