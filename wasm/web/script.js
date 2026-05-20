@@ -241,7 +241,7 @@ async function start_game() {
   status_text.textContent = "Launching game...";
 
   await wait_for_frame();
-  run();
+  Module.callMain();
   info_container.style.zIndex = 0;
   info_container.style.display = "none";
   sync_idbfs();

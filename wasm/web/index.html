@@ -5,19 +5,16 @@
 
     <title>SuperTuxKart</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
-    <script src="/game/supertuxkart.js"></script>
     <script>
-      //emscripten only tells us if the runtime is ready once it starts main
-      //so cancel running main the first time around so we can store when it is ready
+      // Prevent emscripten from auto-running main; script.js calls Module.callMain()
+      // after load_data() has populated the wasm FS at /data.
       globalThis.ready = false;
-      var real_run = run;
-      run = () => {
-        if (globalThis.ready) {
-          real_run();
-        }
-        globalThis.ready = true;
-      }
+      var Module = {
+        noInitialRun: true,
+        onRuntimeInitialized: () => { globalThis.ready = true; }
+      };
     </script>
+    <script src="/game/supertuxkart.js"></script>
     <script src="/script.js" type="module" defer></script>
 
     <style>
