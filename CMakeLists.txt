@@ -59,34 +59,36 @@ if(IOS)
 endif()
 
 if(EMSCRIPTEN)
-    #note: cmake fails the first few times you run it then works fine without changing anything
-    #i have no idea why this happens
+    # find_package(X) calls find_path/find_library which create CACHE variables.
+    # Using plain set() makes a normal variable that the cache shadows on
+    # subsequent runs — hence the upstream "fails the first few times" flake.
+    # Forcing CACHE values makes the configure deterministic.
 
     set(CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/wasm/prefix/")
 
-    set(JPEG_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include")
-    set(JPEG_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libjpeg.a")
+    set(JPEG_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include" CACHE PATH "" FORCE)
+    set(JPEG_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libjpeg.a" CACHE FILEPATH "" FORCE)
 
-    set(PNG_PNG_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include/")
-    set(PNG_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libpng16.a")
+    set(PNG_PNG_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include/" CACHE PATH "" FORCE)
+    set(PNG_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libpng16.a" CACHE FILEPATH "" FORCE)
 
-    set(ZLIB_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include")
-    set(ZLIB_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libz.a")
+    set(ZLIB_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include" CACHE PATH "" FORCE)
+    set(ZLIB_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libz.a" CACHE FILEPATH "" FORCE)
 
-    set(HARFBUZZ_INCLUDEDIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include/")
-    set(HARFBUZZ_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libharfbuzz.a")
+    set(HARFBUZZ_INCLUDEDIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include/" CACHE PATH "" FORCE)
+    set(HARFBUZZ_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libharfbuzz.a" CACHE FILEPATH "" FORCE)
 
-    set(CURL_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include/")
-    set(CURL_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libcurl.a")
+    set(CURL_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include/" CACHE PATH "" FORCE)
+    set(CURL_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libcurl.a" CACHE FILEPATH "" FORCE)
 
-    set(OPENSSL_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include/")
-    set(OPENSSL_CRYPTO_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libssl.a")
+    set(OPENSSL_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include/" CACHE PATH "" FORCE)
+    set(OPENSSL_CRYPTO_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libssl.a" CACHE FILEPATH "" FORCE)
 
-    set(OGGVORBIS_OGG_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include/")
-    set(OGGVORBIS_VORBIS_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include/")
-    set(OGGVORBIS_OGG_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libogg.a")
-    set(OGGVORBIS_VORBISFILE_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libvorbisfile.a")
-    set(OGGVORBIS_VORBIS_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libvorbis.a")
+    set(OGGVORBIS_OGG_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include/" CACHE PATH "" FORCE)
+    set(OGGVORBIS_VORBIS_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/wasm/prefix/include/" CACHE PATH "" FORCE)
+    set(OGGVORBIS_OGG_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libogg.a" CACHE FILEPATH "" FORCE)
+    set(OGGVORBIS_VORBISFILE_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libvorbisfile.a" CACHE FILEPATH "" FORCE)
+    set(OGGVORBIS_VORBIS_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/prefix/lib/libvorbis.a" CACHE FILEPATH "" FORCE)
 
     set(PTHREAD_LIBRARY "${CMAKE_SOURCE_DIR}/wasm/emsdk/upstream")
 
