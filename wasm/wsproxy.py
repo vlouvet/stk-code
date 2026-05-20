@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
-"""Tiny WebSocket-to-TCP proxy for the STK wasm port (dev only).
+"""Tiny WebSocket-to-TCP/UDP proxy for the STK wasm port (dev only).
 
-The wasm build's curl-in-Emscripten makes TCP connections by opening a
-WebSocket to `<ws_proxy>/<host>:<port>` (see wasm/fragments/force_wsproxy.js).
-This script accepts those WS connections, parses the target out of the URL
-path, opens a real TCP socket, and bridges bytes both ways.
+The wasm build's Emscripten libsockfs opens a WebSocket per target socket.
+URL form is `<ws_proxy>/<host>:<port>` for TCP and `<ws_proxy>/udp/<host>:<port>`
+for UDP (see wasm/fragments/force_wsproxy.js). This script accepts those WS
+connections, parses the target out of the URL, opens a real socket, and
+bridges bytes both ways.
+
+For UDP, libsockfs prepends a 10-byte `\xff\xff\xff\xff "port" <hi> <lo>`
+preamble announcing the wasm side's bound local port. The proxy drops it —
+we don't need it, since each WS is one socket-to-target bridge and our own
+ephemeral source port is fine.
 
 Pure stdlib — no `websockets` library required, since macOS Python is
 externally-managed and pip-install is awkward. Implements just enough of
-RFC 6455 to forward binary frames between the browser and a TCP target.
+RFC 6455 to forward binary frames between the browser and the target.
 
 ## Usage
 
@@ -19,8 +25,8 @@ RFC 6455 to forward binary frames between the browser and a TCP target.
 
 ## Caveats — DO NOT EXPOSE PUBLICLY
 
-  * No auth, no allowlist — anyone connecting can use you to TCP-connect
-    anywhere on the internet (SSRF). Run on localhost only.
+  * No auth, no allowlist — anyone connecting can use you to TCP- or UDP-
+    connect anywhere on the internet (SSRF). Run on localhost only.
   * No TLS termination at the WS layer (`ws://` not `wss://`). The HTTPS
     traffic to online.supertuxkart.net is end-to-end-TLS *over* the WS
     socket; curl in the wasm build does its own TLS handshake.
@@ -168,6 +174,10 @@ async def handle_client(client_reader, client_writer):
         return
 
     target = path.lstrip("/")
+    is_udp = False
+    if target.startswith("udp/"):
+        is_udp = True
+        target = target[len("udp/"):]
     if ":" not in target:
         client_writer.write(b"HTTP/1.1 400 Bad Request\r\n\r\nmissing host:port\n")
         await client_writer.drain()
@@ -182,7 +192,17 @@ async def handle_client(client_reader, client_writer):
         client_writer.close()
         return
 
-    print(f"[wsproxy] {peer} -> {host}:{port}", flush=True)
+    proto = "udp" if is_udp else "tcp"
+    print(f"[wsproxy] {peer} -> {proto}://{host}:{port}", flush=True)
+
+    if is_udp:
+        await handle_udp_bridge(client_reader, client_writer, headers, host, port, peer)
+    else:
+        await handle_tcp_bridge(client_reader, client_writer, headers, host, port, peer)
+    print(f"[wsproxy] {peer} -> {proto}://{host}:{port} closed", flush=True)
+
+
+async def handle_tcp_bridge(client_reader, client_writer, headers, host, port, peer):
     try:
         tcp_reader, tcp_writer = await asyncio.open_connection(host, port)
     except OSError as e:
@@ -201,7 +221,119 @@ async def handle_client(client_reader, client_writer):
         tcp_to_ws(tcp_reader, client_writer, peer),
         return_exceptions=True,
     )
-    print(f"[wsproxy] {peer} -> {host}:{port} closed", flush=True)
+
+
+class _UDPProto(asyncio.DatagramProtocol):
+    """Pipes inbound datagrams into a queue for the WS-writer coroutine."""
+
+    def __init__(self, queue, expected_addr, peer):
+        self.queue = queue
+        self.expected_addr = expected_addr  # (host, port) tuple after resolution
+        self.peer = peer
+        self.transport = None
+
+    def connection_made(self, transport):
+        self.transport = transport
+
+    def datagram_received(self, data, addr):
+        print(f"[wsproxy] {self.peer} <- udp {addr} ({len(data)} bytes)", flush=True)
+        self.queue.put_nowait(data)
+
+    def error_received(self, exc):
+        print(f"[wsproxy] {self.peer} udp error: {exc}", flush=True)
+
+
+def _is_port_preamble(data):
+    return (
+        len(data) == 10
+        and data[0:4] == b"\xff\xff\xff\xff"
+        and data[4:8] == b"port"
+    )
+
+
+async def ws_to_udp(reader, transport, target, peer):
+    first = True
+    try:
+        while True:
+            frame = await read_frame(reader)
+            if frame is None:
+                break
+            fin, opcode, payload = frame
+            if opcode == OP_CLOSE:
+                break
+            if opcode == OP_PING:
+                continue
+            if opcode in (OP_BIN, OP_TEXT, OP_CONT):
+                # First wasm-side message may be the 10-byte port preamble
+                # announcing the sender's bound local port. We don't need it.
+                if first and _is_port_preamble(payload):
+                    first = False
+                    print(f"[wsproxy] {peer} dropped preamble", flush=True)
+                    continue
+                first = False
+                if payload:
+                    print(f"[wsproxy] {peer} -> udp {target} ({len(payload)} bytes)", flush=True)
+                    transport.sendto(payload, target)
+    except (asyncio.IncompleteReadError, ConnectionResetError):
+        pass
+
+
+async def udp_to_ws(queue, writer, peer):
+    try:
+        while True:
+            data = await queue.get()
+            if data is None:
+                break
+            writer.write(build_frame(OP_BIN, data))
+            await writer.drain()
+    except (ConnectionResetError, BrokenPipeError):
+        pass
+    finally:
+        try:
+            writer.write(build_frame(OP_CLOSE, b""))
+            await writer.drain()
+        except Exception:
+            pass
+        try:
+            writer.close()
+        except Exception:
+            pass
+
+
+async def handle_udp_bridge(client_reader, client_writer, headers, host, port, peer):
+    loop = asyncio.get_running_loop()
+    queue = asyncio.Queue()
+    try:
+        transport, _proto = await loop.create_datagram_endpoint(
+            lambda: _UDPProto(queue, (host, port), peer),
+            local_addr=("0.0.0.0", 0),
+        )
+    except OSError as e:
+        print(f"[wsproxy] udp bind for {host}:{port} failed: {e}", flush=True)
+        client_writer.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
+        await client_writer.drain()
+        client_writer.close()
+        return
+
+    client_writer.write(handshake_response(headers["sec-websocket-key"]))
+    await client_writer.drain()
+
+    t_ws = asyncio.create_task(ws_to_udp(client_reader, transport, (host, port), peer))
+    t_udp = asyncio.create_task(udp_to_ws(queue, client_writer, peer))
+    try:
+        done, pending = await asyncio.wait(
+            {t_ws, t_udp}, return_when=asyncio.FIRST_COMPLETED
+        )
+        # If the WS side ended, wake the UDP-reader so it exits cleanly.
+        queue.put_nowait(None)
+        for t in pending:
+            t.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+    finally:
+        try:
+            transport.close()
+        except Exception:
+            pass
 
 
 async def main():

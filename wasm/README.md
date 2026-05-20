@@ -44,8 +44,11 @@ wasm/pack_assets.sh ../stk-assets
 ## Online features (news, login, addons, lobbies)
 
 STK's online features talk to `online.supertuxkart.net` over TCP via curl,
-which the browser can't do directly. Emscripten routes those TCP sockets
-through a WebSocket-to-TCP proxy. A small dev proxy is included:
+and multiplayer (STUN + ENet) talks over UDP. The browser can't do either
+directly. Emscripten routes those sockets through a WebSocket proxy that
+bridges to real TCP/UDP. A small dev proxy is included that handles both
+(UDP traffic is sent to `/udp/<host>:<port>`; TCP keeps the `/<host>:<port>`
+path):
 
 ```
 python3 wasm/wsproxy.py 8001
