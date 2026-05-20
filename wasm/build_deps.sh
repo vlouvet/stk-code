@@ -3,7 +3,7 @@
 set -x
 set -e
 
-CORE_COUNT="$(nproc --all)"
+CORE_COUNT="$(getconf _NPROCESSORS_ONLN)"
 BASE_DIR="$(realpath "$(dirname "$0")")"
 BUILD_DIR="$BASE_DIR/build"
 EMSDK_DIR="$BASE_DIR/emsdk"
@@ -54,7 +54,7 @@ build_openssl() {
   cd "$SRC_DIR"
 
   emconfigure ./Configure linux-x32 -no-asm -static -no-afalgeng -no-dso -DOPENSSL_SYS_NETWARE -DSIG_DFL=0 -DSIG_IGN=0 -DHAVE_FORK=0 -DOPENSSL_NO_AFALGENG=1 -DOPENSSL_NO_SPEED=1 -DOPENSSL_NO_DYNAMIC_ENGINE -DDLOPEN_FLAG=0
-  sed -i 's|^CROSS_COMPILE.*$|CROSS_COMPILE=|g' Makefile
+  sed -i.bak 's|^CROSS_COMPILE.*$|CROSS_COMPILE=|g' Makefile && rm Makefile.bak
   emmake make -j$CORE_COUNT build_generated libssl.a libcrypto.a
   cp -r include/openssl $PREFIX/include
   cp libcrypto.a libssl.a $PREFIX/lib
@@ -66,8 +66,16 @@ build_zlib() {
   cd "$SRC_DIR"
 
   emconfigure ./configure --prefix="$PREFIX" --static
-  emmake make -j$CORE_COUNT
-  make install
+  emcc -O2 $CFLAGS -DHAVE_HIDDEN -c \
+    adler32.c crc32.c deflate.c infback.c inffast.c inflate.c \
+    inftrees.c trees.c zutil.c compress.c uncompr.c \
+    gzclose.c gzlib.c gzread.c gzwrite.c
+  emar rcs libz.a \
+    adler32.o crc32.o deflate.o infback.o inffast.o inflate.o \
+    inftrees.o trees.o zutil.o compress.o uncompr.o \
+    gzclose.o gzlib.o gzread.o gzwrite.o
+  cp libz.a "$LIB/"
+  cp zlib.h zconf.h "$INCLUDE/"
 }
 
 build_curl() {
@@ -117,14 +125,16 @@ build_freetype() {
 
   if [ ! "$with_harfbuzz" ]; then
     emcmake cmake .. -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
+      -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
       -DZLIB_LIBRARY="$LIB/libz.a" -DZLIB_INCLUDE_DIR="$INCLUDE" \
-      -DPNG_LIBRARY="$LIB/libpng.a" -DPNG_PNG_INCLUDE_DIR="$INCLUDE" 
+      -DPNG_LIBRARY="$LIB/libpng.a" -DPNG_PNG_INCLUDE_DIR="$INCLUDE"
   else
     emcmake cmake .. -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
+      -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
       -DZLIB_LIBRARY="$LIB/libz.a" -DZLIB_INCLUDE_DIR="$INCLUDE" \
       -DPNG_LIBRARY="$LIB/libpng.a" -DPNG_PNG_INCLUDE_DIR="$INCLUDE" \
       -DHarfBuzz_LIBRARY="$LIB/libharfbuzz.a" -DHarfBuzz_INCLUDE_DIR="$INCLUDE/harfbuzz/" \
-      -DFT_REQUIRE_HARFBUZZ=TRUE   
+      -DFT_REQUIRE_HARFBUZZ=TRUE
   fi
   emmake make -j$CORE_COUNT
   make install
