@@ -17,7 +17,7 @@ create_manifest() {
   local path="$1"
   local file_name="$(basename "$path")"
   local data_dir="$(dirname "$path")"
-  local size="$(du -b "$path" | cut -f1)"
+  local size="$(wc -c < "$path" | tr -d ' ')"
   local chunks="$(find "$data_dir" -name "$file_name.*" | sort)"
 
   echo "$size"
@@ -34,8 +34,11 @@ create_manifest() {
 pack_dir() {
   local source_dir="$1"
   local out_path="$2"
-  tar -cf - -C "$source_dir" . | gzip -9 - > "$out_path"
-  split -b 20m --numeric-suffixes "$out_path" "$out_path."
+  # COPYFILE_DISABLE=1 stops macOS bsdtar from adding ._foo / PaxHeader entries
+  # that js-untar can't parse. --format=ustar pins the on-wire layout.
+  COPYFILE_DISABLE=1 tar --format=ustar --exclude='._*' -cf - -C "$source_dir" . | gzip -9 - > "$out_path"
+  rm -f "$out_path".[0-9]*
+  split -b 20m -d "$out_path" "$out_path."
   create_manifest "$out_path" > "$out_path.manifest"
   rm "$out_path"
 }
@@ -55,5 +58,6 @@ if [ ! "$ASSETS_DIR" ]; then
 fi
 
 generate_dir "$LOW_QUALITY_DIR" "$WEB_DIR/game/data_low.tar.gz" 256
-generate_dir "$MEDIUM_QUALITY_DIR" "$WEB_DIR/game/data_mid.tar.gz" 512
-generate_dir "$HIGH_QUALITY_DIR" "$WEB_DIR/game/data_high.tar.gz" 1024
+# Skipped while iterating on GLES3 — re-enable to ship all quality tiers.
+# generate_dir "$MEDIUM_QUALITY_DIR" "$WEB_DIR/game/data_mid.tar.gz" 512
+# generate_dir "$HIGH_QUALITY_DIR" "$WEB_DIR/game/data_high.tar.gz" 1024
