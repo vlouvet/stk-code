@@ -64,7 +64,19 @@ public:
 
     void renderBoundingBoxes();
 
-    void setFenceSync() { m_sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0); }
+    void setFenceSync()
+    {
+#ifdef __EMSCRIPTEN__
+        // glClientWaitSync on WebGL2 cannot transition the sync to signaled
+        // within a single tick — control must return to the JS event loop
+        // first. Spinning on it in prepareDrawCalls() hard-locks the main
+        // thread. Skip the fence entirely; the WebGL driver synchronizes
+        // buffer writes implicitly.
+        (void)m_sync;
+#else
+        m_sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+#endif
+    }
 };
 
 #endif   // !SERVER_ONLY
