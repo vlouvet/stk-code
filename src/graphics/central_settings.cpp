@@ -269,7 +269,15 @@ void CentralVideoSettings::init()
         }
 
         if (!GraphicsRestrictions::isDisabled(GraphicsRestrictions::GR_COLOR_BUFFER_FLOAT) &&
-            hasGLExtension("GL_EXT_color_buffer_float"))
+            hasGLExtension("GL_EXT_color_buffer_float")
+            // The HDR pipeline samples RGBA16F / R16F render targets with
+            // LINEAR filtering (bloom, DoF, blurs, etc). WebGL2 only allows
+            // that when these texture-filter extensions are present; without
+            // them every bilinear-sample of a half-float texture is rejected
+            // as "texture not texture-filterable" and the draw is dropped.
+            // Require both the 32-bit and 16-bit linear extensions on GLES.
+            && hasGLExtension("GL_OES_texture_float_linear")
+            && hasGLExtension("GL_OES_texture_half_float_linear"))
         {
             hasColorBufferFloat = true;
             Log::info("GLDriver", "EXT Color Buffer Float Present");
