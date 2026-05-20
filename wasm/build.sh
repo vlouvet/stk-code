@@ -5,7 +5,7 @@ set -x
 
 BUILD_TYPE="${1:-'Release'}"
 
-CORE_COUNT="$(nproc --all)"
+CORE_COUNT="$(getconf _NPROCESSORS_ONLN)"
 BASE_DIR="$(realpath "$(dirname "$0")")"
 SRC_DIR="$(dirname "$BASE_DIR")"
 WEB_DIR="$BASE_DIR/web"
