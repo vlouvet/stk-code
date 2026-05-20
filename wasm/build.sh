@@ -16,7 +16,7 @@ mkdir -p $BUILD_DIR
 cd $BUILD_DIR
 
 source "$EMSDK_DIR/emsdk_env.sh"
-embuilder build sdl2 sdl2_ttf sdl2_image sdl2_image_jpg sdl2_image_png
+embuilder build sdl2 sdl2_ttf sdl2_image
 emcmake cmake "$SRC_DIR" -DNO_SHADERC=on -DCMAKE_BUILD_TYPE=$BUILD_TYPE
 make -j$CORE_COUNT
 
