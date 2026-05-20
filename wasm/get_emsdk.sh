@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CORE_COUNT="$(nproc --all)"
+CORE_COUNT="$(getconf _NPROCESSORS_ONLN)"
 BASE_DIR="$(realpath "$(dirname "$0")")"
 EMSDK_DIR="$BASE_DIR/emsdk"
 

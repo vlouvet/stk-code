@@ -12,7 +12,7 @@
 # Spaces in filenames are supported.
 
 #define number of threads
-threads=$(nproc)
+threads=$(getconf _NPROCESSORS_ONLN)
 
 # Start checks
 #if you do not want to use a program, set the variable for it to false here
