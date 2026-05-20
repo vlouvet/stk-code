@@ -19,6 +19,13 @@
 
 ################################################################################
 
+# Prefer ImageMagick 7's "magick" command; fall back to "convert" for IM6.
+if command -v magick >/dev/null 2>&1; then
+    CONVERT_CMD="magick"
+else
+    CONVERT_CMD="convert"
+fi
+
 export KARTS_DEFAULT="all"
 export TRACKS_DEFAULT="all"
 
@@ -271,18 +278,19 @@ convert_image()
         QUALITY_CMD="-quality $PNG_QUALITY"
     fi
 
-    convert $SCALE_CMD $QUALITY_CMD "$FILE" "tmp.$FILE_TYPE"
-    
-    if [ -s "tmp.$FILE_TYPE" ]; then
+    TMP_FILE="$(mktemp -t stk_conv).$FILE_TYPE"
+    $CONVERT_CMD "$FILE" $SCALE_CMD $QUALITY_CMD "$TMP_FILE"
+
+    if [ -s "$TMP_FILE" ]; then
         SIZE_OLD=`du -k "$FILE" | cut -f1`
-        SIZE_NEW=`du -k "tmp.$FILE_TYPE" | cut -f1`
+        SIZE_NEW=`du -k "$TMP_FILE" | cut -f1`
 
         if [ $SIZE_NEW -lt $SIZE_OLD ]; then
-            mv "tmp.$FILE_TYPE" "$FILE"
+            mv "$TMP_FILE" "$FILE"
         fi
     fi
 
-    rm -f "tmp.$FILE_TYPE"
+    rm -f "$TMP_FILE"
 }
 
 convert_sound()
@@ -295,9 +303,11 @@ convert_sound()
         return
     fi
 
-    oggdec "$FILE" -o tmp.wav
+    TMP_WAV="$(mktemp -t stk_snd).wav"
+    TMP_OGG="$(mktemp -t stk_snd).ogg"
+    oggdec "$FILE" -o "$TMP_WAV"
 
-    if [ -s tmp.wav ]; then
+    if [ -s "$TMP_WAV" ]; then
         OGGENC_CMD=""
 
         if [ "$SOUND_MONO" -gt 0 ]; then
@@ -313,19 +323,19 @@ convert_sound()
 
         OGGENC_CMD="$OGGENC_CMD -b $SOUND_QUALITY"
 
-        oggenc $OGGENC_CMD tmp.wav -o tmp.ogg
+        oggenc $OGGENC_CMD "$TMP_WAV" -o "$TMP_OGG"
     fi
 
-    if [ -s tmp.ogg ]; then
+    if [ -s "$TMP_OGG" ]; then
         SIZE_OLD=`du -k "$FILE" | cut -f1`
-        SIZE_NEW=`du -k "tmp.ogg" | cut -f1`
+        SIZE_NEW=`du -k "$TMP_OGG" | cut -f1`
 
         if [ $SIZE_NEW -lt $SIZE_OLD ]; then
-            mv tmp.ogg "$FILE"
+            mv "$TMP_OGG" "$FILE"
         fi
     fi
 
-    rm -f tmp.wav tmp.ogg
+    rm -f "$TMP_WAV" "$TMP_OGG"
 }
 
 optimize_png()
@@ -420,7 +430,7 @@ convert_to_jpg()
     fi
 
     # We can check if new file is smaller
-    convert -quality $JPEG_QUALITY "$FILE" "$NEW_FILE"
+    $CONVERT_CMD "$FILE" -quality $JPEG_QUALITY "$NEW_FILE"
     rm -f "$FILE"
 
     echo "$FILE" >> "./converted_textures"
@@ -635,24 +645,32 @@ convert_to_jpg_update_xml()
 }
 
 
+JOBS="$(getconf _NPROCESSORS_ONLN)"
+
 if [ $DECREASE_QUALITY -gt 0 ]; then
-    find "$OUTPUT_PATH/data" -iname "*.png" | while read f; do convert_image "$f" "png"; done
-    find "$OUTPUT_PATH/data" -iname "*.jpg" | while read f; do convert_image "$f" "jpg"; done
-    find "$OUTPUT_PATH/data" -iname "*.ogg" | while read f; do convert_sound "$f"; done
+    export CONVERT_CMD TEXTURE_SIZE JPEG_QUALITY PNG_QUALITY SOUND_MONO SOUND_SAMPLE SOUND_QUALITY
+    export -f convert_image convert_sound
+
+    find "$OUTPUT_PATH/data" -iname "*.png" -print0 | xargs -0 -P "$JOBS" -I {} bash -c 'convert_image "$1" png' _ {}
+    find "$OUTPUT_PATH/data" -iname "*.jpg" -print0 | xargs -0 -P "$JOBS" -I {} bash -c 'convert_image "$1" jpg' _ {}
+    find "$OUTPUT_PATH/data" -iname "*.ogg" -print0 | xargs -0 -P "$JOBS" -I {} bash -c 'convert_sound "$1"' _ {}
 fi
 
 
 if [ $CONVERT_TO_JPG -gt 0 ]; then
     rm -f "./converted_textures"
-    
+    export -f convert_to_jpg convert_to_jpg_extract_b3dz convert_to_jpg_update_b3d convert_to_jpg_update_spm convert_to_jpg_update_xml
+    export CONVERT_CMD JPEG_QUALITY OUTPUT_PATH CONVERT_TO_JPG_BLACKLIST OS_NAME
+
+    # convert_to_jpg appends to ./converted_textures — leave sequential to avoid races
     find "$OUTPUT_PATH/data" -not -path "$OUTPUT_PATH/data/textures/*" \
                              -not -path "$OUTPUT_PATH/data/karts/*"    \
                              -iname "*.png" | while read f; do convert_to_jpg "$f"; done
 
-    find "$OUTPUT_PATH/data" -iname "*.b3dz" | while read f; do convert_to_jpg_extract_b3dz "$f"; done
-    find "$OUTPUT_PATH/data" -iname "*.b3d" | while read f; do convert_to_jpg_update_b3d "$f"; done
-    find "$OUTPUT_PATH/data" -iname "*.spm" | while read f; do convert_to_jpg_update_spm "$f"; done
-    find "$OUTPUT_PATH/data" -iname "*.xml" | while read f; do convert_to_jpg_update_xml "$f"; done
+    find "$OUTPUT_PATH/data" -iname "*.b3dz" -print0 | xargs -0 -P "$JOBS" -I {} bash -c 'convert_to_jpg_extract_b3dz "$1"' _ {}
+    find "$OUTPUT_PATH/data" -iname "*.b3d"  -print0 | xargs -0 -P "$JOBS" -I {} bash -c 'convert_to_jpg_update_b3d "$1"'  _ {}
+    find "$OUTPUT_PATH/data" -iname "*.spm"  -print0 | xargs -0 -P "$JOBS" -I {} bash -c 'convert_to_jpg_update_spm "$1"'  _ {}
+    find "$OUTPUT_PATH/data" -iname "*.xml"  -print0 | xargs -0 -P "$JOBS" -I {} bash -c 'convert_to_jpg_update_xml "$1"'  _ {}
 
     if [ -s "./converted_textures" ]; then
         echo "Converted textures:"
@@ -662,7 +680,9 @@ if [ $CONVERT_TO_JPG -gt 0 ]; then
 fi
 
 if [ $DECREASE_QUALITY -gt 0 ]; then
-    find "$OUTPUT_PATH/data" -iname "*.png" | while read f; do optimize_png "$f" "png"; done
+    export -f optimize_png
+    export PNGQUANT_QUALITY
+    find "$OUTPUT_PATH/data" -iname "*.png" -print0 | xargs -0 -P "$JOBS" -I {} bash -c 'optimize_png "$1"' _ {}
 fi
 
 
