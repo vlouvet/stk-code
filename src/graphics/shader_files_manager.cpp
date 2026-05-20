@@ -253,7 +253,9 @@ ShaderFilesManager::SharedShader ShaderFilesManager::loadShader
         }
         return NULL;
     }
+#ifndef __EMSCRIPTEN__
     glGetError();
+#endif
 
     return ss;
 } // loadShader

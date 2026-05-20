@@ -60,7 +60,9 @@ int ShaderBase::loadTFBProgram(const std::string &shader_name,
         delete[] error_message;
     }
 
+#ifndef __EMSCRIPTEN__
     glGetError();
+#endif
 
     return m_program;
 }   // loadTFBProgram

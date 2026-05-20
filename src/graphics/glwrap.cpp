@@ -258,7 +258,9 @@ void draw3DLine(const core::vector3df& start,
     line->setUniforms(color);
     glDrawArrays(GL_LINES, 0, 2);
 
+#ifndef __EMSCRIPTEN__
     glGetError();
+#endif
 }
 
 // ----------------------------------------------------------------------------
