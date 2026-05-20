@@ -13,6 +13,10 @@
 #include "fast_atof.h"
 #include "irrString.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/html5_webgl.h>
+#endif
+
 namespace irr
 {
 namespace video
@@ -224,6 +228,17 @@ namespace video
 	#ifdef GL_EXT_texture_filter_anisotropic
 		if (FeatureAvailable[IRR_EXT_texture_filter_anisotropic])
 		{
+#ifdef __EMSCRIPTEN__
+			// WebGL2 lists EXT_texture_filter_anisotropic as supported, but
+			// the GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT enum (and the per-texture
+			// GL_TEXTURE_MAX_ANISOTROPY_EXT parameter) only become valid after
+			// gl.getExtension("EXT_texture_filter_anisotropic") is called.
+			// SDL2's GLES context creation doesn't trigger that, so do it
+			// explicitly here before querying the max.
+			emscripten_webgl_enable_extension(
+				emscripten_webgl_get_current_context(),
+				"EXT_texture_filter_anisotropic");
+#endif
 			glGetIntegerv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &val);
 			MaxAnisotropy = static_cast<u8>(val);
 		}
