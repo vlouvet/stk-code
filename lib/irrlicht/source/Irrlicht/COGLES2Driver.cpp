@@ -816,6 +816,45 @@ namespace video
 
 		CNullDriver::drawVertexPrimitiveList(vertices, vertexCount, indexList, primitiveCount, vType, pType, iType);
 
+#ifdef __EMSCRIPTEN__
+		// WebGL2 forbids client-side vertex arrays. Without -sFULL_ES3
+		// emulating them, raw CPU pointers must be routed through a
+		// temporary buffer. Upload to scratch VBO/IBO, then null out the
+		// pointers so the buffer-offset paths below handle the draw.
+		// Per-draw alloc/free is acceptable since 2D draws are ~10-20/frame
+		// (HUD, menus, debug lines); the heavy 3D path uses VBOs already.
+		GLuint scratch_vbo = 0, scratch_ibo = 0;
+		if (vertices)
+		{
+			glGenBuffers(1, &scratch_vbo);
+			glBindBuffer(GL_ARRAY_BUFFER, scratch_vbo);
+			glBufferData(GL_ARRAY_BUFFER,
+				getVertexPitchFromType(vType) * vertexCount,
+				vertices, GL_STREAM_DRAW);
+			vertices = NULL;
+		}
+		if (indexList)
+		{
+			glGenBuffers(1, &scratch_ibo);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, scratch_ibo);
+			u32 index_count = primitiveCount * 3;
+			switch (pType)
+			{
+				case scene::EPT_LINE_STRIP:     index_count = primitiveCount + 1; break;
+				case scene::EPT_LINE_LOOP:      index_count = primitiveCount;     break;
+				case scene::EPT_LINES:          index_count = primitiveCount * 2; break;
+				case scene::EPT_TRIANGLE_STRIP: index_count = primitiveCount + 2; break;
+				case scene::EPT_TRIANGLE_FAN:   index_count = primitiveCount + 2; break;
+				case scene::EPT_TRIANGLES:      index_count = primitiveCount * 3; break;
+				default: break;
+			}
+			const size_t bytes_per_index = (iType == EIT_16BIT) ? 2 : 4;
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+				index_count * bytes_per_index, indexList, GL_STREAM_DRAW);
+			indexList = NULL;
+		}
+#endif
+
 		//TODO: treat #ifdef GL_OES_point_size_array outside this if
 		{
 			glEnableVertexAttribArray(EVA_COLOR);
@@ -1037,6 +1076,19 @@ namespace video
 			glDisableVertexAttribArray(EVA_TCOORD0);
 		}
 		testGLError();
+
+#ifdef __EMSCRIPTEN__
+		if (scratch_vbo)
+		{
+			glBindBuffer(GL_ARRAY_BUFFER, 0);
+			glDeleteBuffers(1, &scratch_vbo);
+		}
+		if (scratch_ibo)
+		{
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+			glDeleteBuffers(1, &scratch_ibo);
+		}
+#endif
 	}
 
 
