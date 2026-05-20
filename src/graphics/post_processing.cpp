@@ -419,7 +419,10 @@ public:
     // ------------------------------------------------------------------------
     void render(const FrameBuffer &framebuffer, GLuint color_texture, GLuint depth_stencil_texture)
     {
-        framebuffer.bind();
+        // DoF samples depth_stencil_texture as `dtex` and writes into a
+        // depth-attached FBO. Detach depth so WebGL2 doesn't reject the
+        // draw as a feedback loop. DoF doesn't need depth-test.
+        framebuffer.bindWithoutDepth();
         setTextureUnits(color_texture, depth_stencil_texture);
         drawFullScreenEffect();
 
@@ -1012,7 +1015,10 @@ void PostProcessing::renderMotionBlur(const FrameBuffer &in_fbo,
                                       GLuint depth_stencil_texture)
 {
     Camera *cam = Camera::getActiveCamera();
-    out_fbo.bind();
+    // MotionBlur samples depth_stencil_texture as `dtex` and writes into a
+    // depth-attached FBO. Detach depth so WebGL2 doesn't reject the draw
+    // as a feedback loop. MotionBlur doesn't need depth-test.
+    out_fbo.bindWithoutDepth();
     glClear(GL_COLOR_BUFFER_BIT);
 
     float boost_time = m_boost_time.at(cam->getIndex()) * 10.0f;
