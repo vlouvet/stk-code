@@ -41,6 +41,33 @@ wasm/pack_assets.sh ../stk-assets
 (cd wasm/web && python3 ../run_server.py)
 ```
 
+## Online features (news, login, addons, lobbies)
+
+STK's online features talk to `online.supertuxkart.net` over TCP via curl,
+which the browser can't do directly. Emscripten routes those TCP sockets
+through a WebSocket-to-TCP proxy. A small dev proxy is included:
+
+```
+python3 wasm/wsproxy.py 8001
+```
+
+Then edit `wasm/web/config.json` to enable it:
+```json
+{
+  "ws_enabled": true,
+  "ws_proxy":   "ws://127.0.0.1:8001/"
+}
+```
+
+Reload the page. The proxy logs each accepted connection to stdout.
+
+**The proxy is dev-only.** It accepts a TCP target on the URL path
+(`/host:port`) with no allowlist, so anyone who can connect can use it
+as an open relay (SSRF). It binds to `127.0.0.1` and should never be
+exposed publicly. For production deploys, run an allowlisted proxy
+(e.g. `nginx stream` block, websockify with `--target-config`, or
+ading2210's stk wsproxy) in front of the served wasm.
+
 ## Project Structure:
 - /wasm/build - Files for building the dependencies
 - /wasm/prefix - Headers and library files
