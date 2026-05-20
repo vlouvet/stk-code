@@ -15,6 +15,8 @@
 //  along with this program; if not, write to the Free Software
 //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+#ifndef SERVER_ONLY // No GUI files in server builds
+
 // Manages includes common to all options screens
 #include "states_screens/options/options_common.hpp"
 
@@ -32,6 +34,9 @@
 #include "states_screens/dialogs/general_text_field_dialog.hpp"
 
 using namespace GUIEngine;
+
+#define ACTION_ROW_PROP 5
+#define KEYBIND_ROW_PROP 7
 
 // ----------------------------------------------------------------------------
 
@@ -53,8 +58,8 @@ void OptionsScreenDevice::beforeAddingWidget()
     ListWidget* w_list = getWidget<GUIEngine::ListWidget>("actions");
     assert(w_list != NULL);
     w_list->clearColumns();
-    w_list->addColumn(_("Action"), 1);
-    w_list->addColumn(_("Key binding"), 1);
+    w_list->addColumn(_("Action"), ACTION_ROW_PROP);
+    w_list->addColumn(_("Key binding"), KEYBIND_ROW_PROP);
     w_list->setSortable(false);
 }
 
@@ -198,8 +203,8 @@ void OptionsScreenDevice::addListItemSubheader(GUIEngine::ListWidget* actions,
                                               const core::stringw& text)
 {
     std::vector<GUIEngine::ListWidget::ListCell> row;
-    row.push_back(GUIEngine::ListWidget::ListCell(text, -1, 1, false));
-    row.push_back(GUIEngine::ListWidget::ListCell(L"", -1, 1, false));
+    row.push_back(GUIEngine::ListWidget::ListCell(text, -1, ACTION_ROW_PROP, false));
+    row.push_back(GUIEngine::ListWidget::ListCell(L"", -1, KEYBIND_ROW_PROP, false));
     actions->addItem(id, row);
 }   // addListItemSubheader
 
@@ -210,8 +215,8 @@ void OptionsScreenDevice::addListItem(GUIEngine::ListWidget* actions,
 {
     std::vector<GUIEngine::ListWidget::ListCell> row;
     core::stringw s(KartActionStrings[pa].c_str());
-    row.push_back(GUIEngine::ListWidget::ListCell(s, -1, 1, false));
-    row.push_back(GUIEngine::ListWidget::ListCell(L"", -1, 1, false));
+    row.push_back(GUIEngine::ListWidget::ListCell(s, -1, ACTION_ROW_PROP, false));
+    row.push_back(GUIEngine::ListWidget::ListCell(L"", -1, KEYBIND_ROW_PROP, false));
     actions->addItem(KartActionStrings[pa], row);
 }   // addListItem
 
@@ -306,6 +311,12 @@ void OptionsScreenDevice::updateInputButtons()
         const irr::core::stringw item = m_config->getMappingIdString(action);
         if (currently_used_keys.find(item) == currently_used_keys.end())
         {
+            if (item == "none") 
+            {
+                // Use the theme-defined emphasis-color to bring attention to the missing binding
+                actions->emphasisItem(KartActionStrings[action]);
+                continue;
+            }
             currently_used_keys.insert( item );
             if (m_config->isKeyboard()
                 && conflictsBetweenKbdConfig(action, PA_FIRST_GAME_ACTION,
@@ -606,7 +617,7 @@ void OptionsScreenDevice::eventCallback(Widget* widget,
             _("Enter new configuration name, leave empty to revert default value.");
         DeviceConfig *the_config = m_config; //Can't give variable m_config directly
 
-        new GeneralTextFieldDialog(instruction, [] (const irr::core::stringw& text) {},
+        GeneralTextFieldDialog* dialog = new GeneralTextFieldDialog(instruction, [] (const irr::core::stringw& text) {},
             [the_config] (GUIEngine::LabelWidget* lw,
                 GUIEngine::TextBoxWidget* tb)->bool
             {
@@ -615,6 +626,9 @@ void OptionsScreenDevice::eventCallback(Widget* widget,
                 input_manager->getDeviceManager()->save();
                 return true;
             });
+        
+        // Prefill the textbox with the current configuration name
+        dialog->getTextField()->setText(the_config->getConfigName());
     }
     else if (name == "force_feedback")
     {
@@ -684,3 +698,5 @@ bool OptionsScreenDevice::conflictsBetweenKbdConfig(PlayerAction action,
     }
     return false;
 }   // conflictsBetweenKbdConfig
+
+#endif // ifndef SERVER_ONLY

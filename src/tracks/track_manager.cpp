@@ -74,7 +74,7 @@ void TrackManager::addTrackSearchDir(const std::string &dir)
 }   // addTrackDir
 
 //-----------------------------------------------------------------------------
-/** Returns the number of racing tracks. Those are tracks that are not 
+/** Returns the number of racing tracks. Those are tracks that are not
  *  internal (like cut scenes), arenas, or soccer fields.
  */
 int TrackManager::getNumberOfRaceTracks() const
@@ -543,5 +543,9 @@ void TrackManager::updateScreenshotCache()
             GE::getGEConfig()->m_ondemand_load_texture_paths.insert(full_path);
 #endif
         irr_driver->getTexture(t->getScreenshotFile());
+#ifndef SERVER_ONLY
+        if (GE::getDriver()->getDriverType() == video::EDT_VULKAN)
+            GE::getGEConfig()->m_ondemand_load_texture_paths.erase(full_path);
+#endif
     }
 }   // updateScreenshotCache

@@ -40,7 +40,6 @@
 #include "karts/abstract_kart.hpp"
 #include "modes/world.hpp"
 #include "scriptengine/script_engine.hpp"
-#include "states_screens/dialogs/tutorial_message_dialog.hpp"
 #include "tracks/check_cylinder.hpp"
 #include "tracks/check_manager.hpp"
 #include "tracks/check_trigger.hpp"
@@ -58,6 +57,7 @@
 #include <IMeshSceneNode.h>
 #include <IParticleSystemSceneNode.h>
 #include <ISceneManager.h>
+#include <IVideoDriver.h>
 
 // ----------------------------------------------------------------------------
 TrackObjectPresentation::TrackObjectPresentation(const XMLNode& xml_node)
@@ -759,7 +759,7 @@ void TrackObjectPresentationSound::triggerSound(bool loop)
 // ----------------------------------------------------------------------------
 void TrackObjectPresentationSound::stopSound()
 {
-    if (m_sound != NULL) 
+    if (m_sound != NULL)
         m_sound->stop();
 }   // stopSound
 
@@ -773,7 +773,7 @@ TrackObjectPresentationSound::~TrackObjectPresentationSound()
 }   // ~TrackObjectPresentationSound
 
 // ----------------------------------------------------------------------------
-void TrackObjectPresentationSound::move(const core::vector3df& xyz, 
+void TrackObjectPresentationSound::move(const core::vector3df& xyz,
                                         const core::vector3df& hpr,
                                         const core::vector3df& scale,
                                         bool isAbsoluteCoord)
@@ -799,7 +799,7 @@ void TrackObjectPresentationSound::setEnable(bool enabled)
 
 // ----------------------------------------------------------------------------
 TrackObjectPresentationBillboard::TrackObjectPresentationBillboard(
-                                                     const XMLNode& xml_node, 
+                                                     const XMLNode& xml_node,
                                                      scene::ISceneNode* parent)
                                 : TrackObjectPresentationSceneNode(xml_node)
 {
@@ -850,7 +850,7 @@ void TrackObjectPresentationBillboard::updateGraphics(float dt)
         }
         else
         {
-            int a = (int)(255*(dist - m_fade_out_start) 
+            int a = (int)(255*(dist - m_fade_out_start)
                           / (m_fade_out_end - m_fade_out_start));
             node->setColor(video::SColor(a, 255, 255, 255));
         }
@@ -867,7 +867,7 @@ TrackObjectPresentationBillboard::~TrackObjectPresentationBillboard()
 
 // ----------------------------------------------------------------------------
 TrackObjectPresentationParticles::TrackObjectPresentationParticles(
-                                                     const XMLNode& xml_node, 
+                                                     const XMLNode& xml_node,
                                                      scene::ISceneNode* parent)
                                 : TrackObjectPresentationSceneNode(xml_node)
 {
@@ -1014,7 +1014,7 @@ void TrackObjectPresentationParticles::setRate(float rate)
 
 // ----------------------------------------------------------------------------
 TrackObjectPresentationLight::TrackObjectPresentationLight(
-                                                     const XMLNode& xml_node, 
+                                                     const XMLNode& xml_node,
                                                      scene::ISceneNode* parent)
                             : TrackObjectPresentationSceneNode(xml_node)
 {
@@ -1028,7 +1028,8 @@ TrackObjectPresentationLight::TrackObjectPresentationLight(
     m_distance = 20.f * m_energy;
     xml_node.get("distance", &m_distance);
 #ifndef SERVER_ONLY
-    if (CVS->isGLSL())
+    if (CVS->isGLSL() ||
+        irr_driver->getVideoDriver()->getDriverType() == video::EDT_VULKAN)
     {
         m_node = irr_driver->addLight(m_init_xyz, m_energy, m_distance,
                                       colorf.r, colorf.g, colorf.b, false,
@@ -1038,6 +1039,33 @@ TrackObjectPresentationLight::TrackObjectPresentationLight(
 #endif
     {
         m_node = NULL; // lights require shaders to work
+    }
+
+    std::string type = "point";
+    xml_node.get("type", &type);
+    float inner_cone = 0.0f;
+    float outer_cone = 0.0f;
+    xml_node.get("inner-cone", &inner_cone);
+    xml_node.get("outer-cone", &outer_cone);
+    if (type != "spot" || (inner_cone == 0.0f && outer_cone == 0.0f))
+        return;
+
+    LightNode* lnode = dynamic_cast<LightNode*>(m_node);
+    if (lnode != NULL)
+    {
+        Spotlight& sl = lnode->getSpotlightData();
+        sl.m_inner_cone = inner_cone;
+        sl.m_outer_cone = outer_cone;
+        return;
+    }
+    scene::ILightSceneNode* irr_node = dynamic_cast<scene::ILightSceneNode*>(
+        m_node);
+    if (irr_node != NULL)
+    {
+        irr_node->setLightType(video::ELT_SPOT);
+        video::SLight& data = irr_node->getLightData();
+        data.InnerCone = inner_cone;
+        data.OuterCone = outer_cone;
     }
 }   // TrackObjectPresentationLight
 
@@ -1053,6 +1081,14 @@ void TrackObjectPresentationLight::setEnergy(float energy)
     if (lnode != NULL)
     {
         lnode->setEnergy(energy);
+        return;
+    }
+    scene::ILightSceneNode* irr_node = dynamic_cast<scene::ILightSceneNode*>(
+        m_node);
+    if (irr_node != NULL)
+    {
+        video::SLight& data = irr_node->getLightData();
+        data.Attenuation.X = energy;
     }
 }
 // ----------------------------------------------------------------------------
@@ -1140,7 +1176,7 @@ TrackObjectPresentationActionTrigger::TrackObjectPresentationActionTrigger(
 TrackObjectPresentationActionTrigger::TrackObjectPresentationActionTrigger(
                                                 const core::vector3df& xyz,
                                                 const std::string& script_name,
-                                                float distance) 
+                                                float distance)
                                     : TrackObjectPresentation(xyz)
 {
     m_init_xyz             = xyz;
@@ -1172,7 +1208,7 @@ void TrackObjectPresentationActionTrigger::onTriggerItemApproached(int kart_id)
     {
         Scripting::ScriptEngine::getInstance()->runFunction(true, "void "
             + m_library_name + "::" + m_action +
-            "(int, const string, const string)", [=](asIScriptContext* ctx)
+            "(int, const string, const string)", [this, kart_id](asIScriptContext* ctx)
             {
                 ctx->SetArgDWord(0, kart_id);
                 ctx->SetArgObject(1, &m_library_id);

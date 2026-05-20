@@ -15,6 +15,8 @@
 //  along with this program; if not, write to the Free Software
 //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+#ifndef SERVER_ONLY // No GUI files in server builds
+
 // Manages includes common to all options screens
 #include "states_screens/options/options_common.hpp"
 
@@ -64,7 +66,7 @@ void BaseUserScreen::loadedFromFile()
 }   // loadedFromFile
 
 // ----------------------------------------------------------------------------
-/** Stores information from the register screen. It allows this screen to 
+/** Stores information from the register screen. It allows this screen to
  *  use the entered user name and password to prefill fields so that the user
  *  does not have to enter them again.
  *  \param online If the user created an online account.
@@ -92,16 +94,14 @@ void BaseUserScreen::beforeAddingWidget()
 }   // beforeAddingWidget
 
 // ----------------------------------------------------------------------------
-/** Initialises the user screen. Searches for all players to fill the 
+/** Initialises the user screen. Searches for all players to fill the
  *  list of users with their icons, and initialises all widgets for the
  *  current user (e.g. the online flag etc).
  */
 void BaseUserScreen::init()
 {
-#ifndef SERVER_ONLY
     getWidget<IconButtonWidget>("default_kart_color")
         ->setVisible(CVS->supportsColorization());
-#endif
 
     m_password_tb->setPasswordBox(true, L'*');
 
@@ -110,8 +110,8 @@ void BaseUserScreen::init()
     // this case no 'back' error should be shown.
     bool is_first_screen = StateManager::get()->getMenuStackSize()==1;
     getWidget<IconButtonWidget>("back")->setVisible(!is_first_screen);
-    getWidget<IconButtonWidget>("cancel")->setLabel(is_first_screen 
-                                                    ? _("Exit game") 
+    getWidget<IconButtonWidget>("cancel")->setLabel(is_first_screen
+                                                    ? _("Exit game")
                                                     : _("Cancel")      );
 
     m_sign_out_name = "";
@@ -289,9 +289,9 @@ void BaseUserScreen::makeEntryFieldsVisible()
     // and either is the current player and logged in (no need to enter a
     // password then) or has a saved session.
     if(player && online  &&
-        (player->hasSavedSession() || 
-          (player==PlayerManager::getCurrentPlayer() && player->isLoggedIn() ) 
-        ) 
+        (player->hasSavedSession() ||
+          (player==PlayerManager::getCurrentPlayer() && player->isLoggedIn() )
+        )
       )
     {
         // If we show the online login fields, but the player has a
@@ -362,9 +362,7 @@ void BaseUserScreen::eventCallback(Widget* widget,
                     {
                         UserConfigParams::m_internet_status =
                             Online::RequestManager::IPERM_ALLOWED;
-#ifndef SERVER_ONLY
                         NewsManager::get()->init(false);
-#endif
                         m_parent_screen->makeEntryFieldsVisible();
                         ModalDialog::dismiss();
                     }   // onConfirm
@@ -735,3 +733,5 @@ void TabbedUserScreen::eventCallback(GUIEngine::Widget* widget,
         BaseUserScreen::eventCallback(widget, name, player_id);
 
 }   // eventCallback
+
+#endif // ifndef SERVER_ONLY

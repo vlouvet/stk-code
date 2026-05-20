@@ -15,6 +15,8 @@
 //  along with this program; if not, write to the Free Software
 //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+#ifndef SERVER_ONLY // No GUI files in server builds
+
 // Manages includes common to all options screens
 #include "states_screens/options/options_common.hpp"
 
@@ -105,7 +107,7 @@ void OptionsScreenAudio::eventCallback(Widget* widget, const std::string& name, 
 
         float new_volume = computeVolume(w->getValue(), UserConfigParams::m_volume_denominator);
 
-        UserConfigParams::m_music_numerator = w->getValue(); 
+        UserConfigParams::m_music_numerator = w->getValue();
         music_manager->setMasterMusicVolume(new_volume);
     }
     else if(name == "sfx_volume")
@@ -120,7 +122,7 @@ void OptionsScreenAudio::eventCallback(Widget* widget, const std::string& name, 
 
         float new_volume = computeVolume(w->getValue(), UserConfigParams::m_volume_denominator);
         SFXManager::get()->setMasterSFXVolume(new_volume);
-        UserConfigParams::m_sfx_numerator = w->getValue(); 
+        UserConfigParams::m_sfx_numerator = w->getValue();
         UserConfigParams::m_sfx_volume = new_volume;
 
         // play a sample sound to show the user what this volume is like
@@ -188,3 +190,4 @@ void OptionsScreenAudio::unloaded()
 
 // -----------------------------------------------------------------------------
 
+#endif // ifndef SERVER_ONLY

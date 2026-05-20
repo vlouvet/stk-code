@@ -42,7 +42,7 @@
 #      include <sys/utsname.h>
 #  endif
 #endif
-#if defined(__APPLE__) || defined(BSD)
+#if defined(__APPLE__) || (defined(BSD) && !defined(__gnu_hurd__))
 #  include <sys/sysctl.h>
 #endif
 
@@ -111,7 +111,7 @@ int getNumProcessors()
 #endif
 #ifdef WIN32
     SYSTEM_INFO si;
-    GetSystemInfo(&si);	// guaranteed to succeed
+    GetSystemInfo(&si);    // guaranteed to succeed
     return si.dwNumberOfProcessors;
 #endif
 #if defined(__APPLE__)

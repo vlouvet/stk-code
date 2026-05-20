@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.6.0)
+cmake_minimum_required(VERSION 3.12...4.0)
 
 # root CMakeLists for the SuperTuxKart project
 project(SuperTuxKart)
@@ -25,6 +25,7 @@ option(SERVER_ONLY "Create a server only (i.e. no graphics or sound)" OFF)
 option(CHECK_ASSETS "Check if assets are installed in ../stk-assets" ON)
 option(USE_SYSTEM_ANGELSCRIPT "Use system angelscript instead of built-in angelscript. If you enable this option, make sure to use a compatible version." OFF)
 option(USE_SYSTEM_ENET "Use system ENet instead of the built-in version, when available." ON)
+option(USE_SYSTEM_MCPP "Use system mcpp instead of the built-in version, when available." ON)
 CMAKE_DEPENDENT_OPTION(USE_IPV6 "Allow create or connect to game server with IPv6 address, system enet will not be used." ON
   "NOT USE_SWITCH" OFF)
 option(USE_SYSTEM_WIIUSE "Use system WiiUse instead of the built-in version, when available." OFF)
@@ -45,6 +46,8 @@ CMAKE_DEPENDENT_OPTION(USE_WIIUSE "Support for wiimote input devices" ON
     "NOT SERVER_ONLY;NOT CYGWIN;NOT USE_SWITCH;NOT MSVC" OFF)
 CMAKE_DEPENDENT_OPTION(USE_DNS_C "Build bundled dns resolver" OFF "NOT CYGWIN;NOT USE_SWITCH" ON)
 CMAKE_DEPENDENT_OPTION(USE_MOJOAL "Use bundled MojoAL instead of system OpenAL" OFF "NOT APPLE" ON)
+CMAKE_DEPENDENT_OPTION(HAVE_OPUS "Enable Opus audio codec support (requires libopusfile)" OFF
+    "NOT SERVER_ONLY" OFF)
 
 if (DLOPEN_MOLTENVK)
     ADD_DEFINITIONS(-DDLOPEN_MOLTENVK)
@@ -176,6 +179,7 @@ endif()
 if(USE_ASAN)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
+    ADD_DEFINITIONS(-DASAN_STK)
 endif()
 if(USE_TSAN)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread -fno-omit-frame-pointer")
@@ -377,8 +381,10 @@ if(NOT SERVER_ONLY)
 endif()
 
 # Libmcpp
-find_library(MCPP_LIBRARY NAMES mcpp libmcpp)
-find_path(MCPP_INCLUDEDIR NAMES mcpp_lib.h PATHS)
+if (USE_SYSTEM_MCPP)
+    find_library(MCPP_LIBRARY NAMES mcpp libmcpp)
+    find_path(MCPP_INCLUDEDIR NAMES mcpp_lib.h PATHS)
+endif()
 if (NOT MCPP_LIBRARY OR NOT MCPP_INCLUDEDIR)
     add_subdirectory("${PROJECT_SOURCE_DIR}/lib/mcpp")
     include_directories(BEFORE "${PROJECT_SOURCE_DIR}/lib/mcpp")
@@ -497,6 +503,21 @@ if(NOT SERVER_ONLY)
     find_package(OggVorbis REQUIRED)
     include_directories(${OGGVORBIS_INCLUDE_DIRS})
 
+    # Opus (optional)
+    if(HAVE_OPUS)
+        find_library(OPUSFILE_LIBRARY NAMES opusfile)
+        find_path(OPUSFILE_INCLUDEDIR NAMES opusfile.h PATH_SUFFIXES opus)
+        if(NOT OPUSFILE_LIBRARY OR NOT OPUSFILE_INCLUDEDIR)
+            message(FATAL_ERROR "OpusFile not found. "
+                "OpusFile is required when HAVE_OPUS is enabled. "
+                "Install libopusfile-dev or set HAVE_OPUS=OFF.")
+        else()
+            include_directories("${OPUSFILE_INCLUDEDIR}")
+            add_definitions(-DHAVE_OPUS)
+            MESSAGE(STATUS "Opus audio support: ${OPUSFILE_LIBRARY}")
+        endif()
+    endif()
+
     add_definitions(-DENABLE_SOUND)
 endif()
 
@@ -539,23 +560,6 @@ if(USE_LIBBFD)
     endif()
 endif()
 
-# SQLITE
-if(USE_SQLITE3)
-    find_library(SQLITE3_LIBRARY NAMES sqlite3 libsqlite3)
-    find_path(SQLITE3_INCLUDEDIR NAMES sqlite3.h PATHS)
-    if (NOT SQLITE3_LIBRARY OR NOT SQLITE3_INCLUDEDIR)
-#        add_subdirectory("${PROJECT_SOURCE_DIR}/lib/sqlite3")
-#        include_directories(BEFORE "${PROJECT_SOURCE_DIR}/lib/sqlite3")
-#        SET(SQLITE3_LIBRARY sqlite3)
-        set(USE_SQLITE3 OFF CACHE BOOL "Use sqlite to manage server stats and ban list." FORCE)
-        message(WARNING "Sqlite3 not found, disable advanced server management.")
-    else()
-        add_definitions(-DENABLE_SQLITE3)
-        include_directories("${SQLITE3_INCLUDEDIR}")
-        MESSAGE(STATUS "Use system libsqlite3: ${SQLITE3_LIBRARY}")
-    endif()
-endif()
-
 # Set some compiler options
 if(UNIX OR MINGW)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++0x")
@@ -582,8 +586,7 @@ endif()
 if(MSVC)
     # VS will automatically add NDEBUG for release mode, but only _DEBUG in debug mode.
     # Since STK uses DEBUG, this is added for debug compilation only:
-    cmake_policy(SET CMP0043 OLD)
-    set_property(DIRECTORY PROPERTY COMPILE_DEFINITIONS_DEBUG DEBUG)
+    add_compile_definitions($<$<CONFIG:Debug>:DEBUG>)
 else()
     # All non VS generators used create only a single compile mode, so
     # compile flags can be simplye be added
@@ -602,6 +605,31 @@ endif()
 # Provides list of source and header files (STK_SOURCES and STK_HEADERS)
 include(sources.cmake)
 
+if (USE_APPLE_NETWORK_LIBRARIES)
+    add_definitions(-DAPPLE_NETWORK_LIBRARIES)
+    set(STK_SOURCES
+        ${STK_SOURCES}
+        src/online/http_request_urlsession.mm
+        src/network/crypto_cryptokit.mm)
+    set_source_files_properties(src/online/http_request_urlsession.mm PROPERTIES COMPILE_FLAGS "-x objective-c++")
+    set_source_files_properties(src/online/http_request_urlsession.mm PROPERTIES LANGUAGE CXX)
+    set_source_files_properties(src/network/crypto_cryptokit.mm PROPERTIES COMPILE_FLAGS "-x objective-c++")
+    set_source_files_properties(src/network/crypto_cryptokit.mm PROPERTIES LANGUAGE CXX)
+
+    enable_language(Swift)
+    add_library(cryptokit_wrapper STATIC src/network/cryptokit_wrapper.swift)
+    set(SWIFT_HEADER_DIR "${CMAKE_BINARY_DIR}/swift_header")
+    set(SWIFT_HEADER "${SWIFT_HEADER_DIR}/cryptokit_wrapper-Swift.h")
+    target_compile_options(cryptokit_wrapper PRIVATE -emit-objc-header-path ${SWIFT_HEADER})
+    set_target_properties(cryptokit_wrapper PROPERTIES
+        XCODE_ATTRIBUTE_DERIVED_FILE_DIR ${SWIFT_HEADER_DIR}
+    )
+    target_include_directories(cryptokit_wrapper INTERFACE ${SWIFT_HEADER_DIR})
+else()
+    find_package(CURL REQUIRED)
+    include_directories(${CURL_INCLUDE_DIRS})
+endif()
+
 # Generate source groups useful for MSVC project explorer
 include(cmake/SourceGroupFunctions.cmake)
 source_group_hierarchy(STK_SOURCES STK_HEADERS)
@@ -616,12 +644,8 @@ if(APPLE AND NOT IOS)
     # build the executable and create an app bundle
     add_executable(supertuxkart MACOSX_BUNDLE ${STK_SOURCES})
 
-    find_library(IOKIT_LIBRARY IOKit)
-    find_library(COCOA_LIBRARY Cocoa)
-
-    target_link_libraries(supertuxkart
-         ${IOKIT_LIBRARY}
-         ${COCOA_LIBRARY})
+    find_library(APPKIT_LIBRARY AppKit)
+    target_link_libraries(supertuxkart ${APPKIT_LIBRARY})
 
     # configure CMake to use a custom Info.plist
     set_target_properties(supertuxkart PROPERTIES
@@ -659,7 +683,7 @@ else()
         add_executable(supertuxkart ${STK_SOURCES} ${STK_RESOURCES} ${STK_HEADERS} ${IOS_ASSETS_FILES})
         set_target_properties(supertuxkart PROPERTIES
             MACOSX_BUNDLE_INFO_PLIST ${PROJECT_SOURCE_DIR}/data/SuperTuxKart-Info-iOS.plist
-            XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET 9.0
+            XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET 13.0
             XCODE_ATTRIBUTE_INSTALL_PATH /Applications
             XCODE_ATTRIBUTE_SKIP_INSTALL No
             XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon")
@@ -680,6 +704,25 @@ else()
     endif()
 endif()
 
+# SQLITE
+if(USE_SQLITE3)
+    find_library(SQLITE3_LIBRARY NAMES sqlite3 libsqlite3)
+    find_path(SQLITE3_INCLUDEDIR NAMES sqlite3.h PATHS)
+    if (NOT SQLITE3_LIBRARY OR NOT SQLITE3_INCLUDEDIR)
+#        add_subdirectory("${PROJECT_SOURCE_DIR}/lib/sqlite3")
+#        include_directories(BEFORE "${PROJECT_SOURCE_DIR}/lib/sqlite3")
+#        SET(SQLITE3_LIBRARY sqlite3)
+        set(USE_SQLITE3 OFF CACHE BOOL "Use sqlite to manage server stats and ban list." FORCE)
+        message(WARNING "Sqlite3 not found, disable advanced server management.")
+    else()
+        add_definitions(-DENABLE_SQLITE3)
+        # include_directories conflicts with cryptokit_wrapper
+        #include_directories("${SQLITE3_INCLUDEDIR}")
+        target_include_directories(supertuxkart PRIVATE "${SQLITE3_INCLUDEDIR}")
+        MESSAGE(STATUS "Use system libsqlite3: ${SQLITE3_LIBRARY}")
+    endif()
+endif()
+
 # check if linking against libatomic is required
 include(CheckCXXSourceCompiles)
 check_cxx_source_compiles("
@@ -695,36 +738,35 @@ if (NOT NO_LIBATOMIC_NEEDED AND NOT EMSCRIPTEN)
     target_link_libraries(supertuxkart atomic)
 endif()
 
-# CURL and OpenSSL or MbedTLS
-# 1.0.1d for compatible AES GCM handling
-SET(OPENSSL_MINIMUM_VERSION "1.0.1d")
+# OpenSSL or MbedTLS
+if (NOT USE_APPLE_NETWORK_LIBRARIES)
+    # 1.0.1d for compatible AES GCM handling
+    SET(OPENSSL_MINIMUM_VERSION "1.0.1d")
 
-find_package(CURL REQUIRED)
-include_directories(${CURL_INCLUDE_DIRS})
+    find_path(MBEDTLS_INCLUDE_DIRS mbedtls/version.h)
+    find_library(MBEDCRYPTO_LIBRARY NAMES mbedcrypto libmbedcrypto)
 
-find_path(MBEDTLS_INCLUDE_DIRS mbedtls/version.h)
-find_library(MBEDCRYPTO_LIBRARY NAMES mbedcrypto libmbedcrypto)
+    if (NOT MBEDCRYPTO_LIBRARY OR NOT MBEDTLS_INCLUDE_DIRS OR USE_CRYPTO_OPENSSL)
+        set(USE_CRYPTO_OPENSSL ON)
+        find_package(OpenSSL REQUIRED)
 
-if (NOT MBEDCRYPTO_LIBRARY OR NOT MBEDTLS_INCLUDE_DIRS OR USE_CRYPTO_OPENSSL)
-    set(USE_CRYPTO_OPENSSL ON)
-    find_package(OpenSSL REQUIRED)
-
-    if(${OPENSSL_VERSION} VERSION_LESS ${OPENSSL_MINIMUM_VERSION} OR
-        (${OPENSSL_VERSION} VERSION_EQUAL ${OPENSSL_MINIMUM_VERSION} AND ${OPENSSL_VERSION} STRLESS ${OPENSSL_MINIMUM_VERSION}))
-        message(FATAL_ERROR "OpenSSL version found (${OPENSSL_VERSION}) is less then the minimum required (${OPENSSL_MINIMUM_VERSION}), aborting.")
+        if(${OPENSSL_VERSION} VERSION_LESS ${OPENSSL_MINIMUM_VERSION} OR
+            (${OPENSSL_VERSION} VERSION_EQUAL ${OPENSSL_MINIMUM_VERSION} AND ${OPENSSL_VERSION} STRLESS ${OPENSSL_MINIMUM_VERSION}))
+            message(FATAL_ERROR "OpenSSL version found (${OPENSSL_VERSION}) is less then the minimum required (${OPENSSL_MINIMUM_VERSION}), aborting.")
+        endif()
+        include_directories(${OpenSSL_INCLUDE_DIRS})
+    else()
+        set(USE_CRYPTO_OPENSSL OFF)
+        include_directories(${MBEDTLS_INCLUDE_DIRS})
     endif()
-    include_directories(${OpenSSL_INCLUDE_DIRS})
-else()
-    set(USE_CRYPTO_OPENSSL OFF)
-    include_directories(${MBEDTLS_INCLUDE_DIRS})
-endif()
 
-if (USE_CRYPTO_OPENSSL)
-    message(STATUS "OpenSSL will be used for cryptography in STK.")
-    add_definitions(-DENABLE_CRYPTO_OPENSSL)
-else()
-    message(STATUS "MbedTLS will be used for cryptography in STK.")
-    add_definitions(-DENABLE_CRYPTO_MBEDTLS)
+    if (USE_CRYPTO_OPENSSL)
+        message(STATUS "OpenSSL will be used for cryptography in STK.")
+        add_definitions(-DENABLE_CRYPTO_OPENSSL)
+    else()
+        message(STATUS "MbedTLS will be used for cryptography in STK.")
+        add_definitions(-DENABLE_CRYPTO_MBEDTLS)
+    endif()
 endif()
 
 # Common library dependencies
@@ -735,9 +777,14 @@ target_link_libraries(supertuxkart
     ${ENET_LIBRARIES}
     stkirrlicht
     ${Angelscript_LIBRARIES}
-    ${CURL_LIBRARIES}
     ${MCPP_LIBRARY}
     )
+
+if (USE_APPLE_NETWORK_LIBRARIES)
+    target_link_libraries(supertuxkart "-framework Foundation -framework CryptoKit" cryptokit_wrapper)
+else()
+    target_link_libraries(supertuxkart ${CURL_LIBRARIES})
+endif()
 
 if (USE_SWITCH)
   include(cmake/FindEGL.cmake)
@@ -793,7 +840,7 @@ endif()
 
 if (USE_CRYPTO_OPENSSL)
     target_link_libraries(supertuxkart ${OPENSSL_CRYPTO_LIBRARY})
-else()
+elseif(NOT USE_APPLE_NETWORK_LIBRARIES)
     target_link_libraries(supertuxkart ${MBEDCRYPTO_LIBRARY})
 endif()
 
@@ -826,6 +873,9 @@ if(NOT SERVER_ONLY)
         graphics_engine
         ${SDL2_LIBRARY}
         tinygettext)
+    if(HAVE_OPUS)
+        target_link_libraries(supertuxkart ${OPUSFILE_LIBRARY})
+    endif()
     if (NOT NO_SHADERC)
         target_link_libraries(supertuxkart ${SHADERC_LIBRARY})
     endif()
@@ -910,15 +960,15 @@ if(MINGW)
     if (NOT CMAKE_BUILD_TYPE MATCHES Debug)
         target_link_libraries(supertuxkart -mwindows)
     endif()
-    find_library(LIBGCC NAMES "libgcc_s_dw2-1.dll" "libgcc_s_sjlj-1.dll" "libgcc_s_seh-1.dll" PATHS ${CMAKE_FIND_ROOT_PATH})
+    find_file(LIBGCC NAMES "libgcc_s_dw2-1.dll" "libgcc_s_sjlj-1.dll" "libgcc_s_seh-1.dll" PATHS ${CMAKE_FIND_ROOT_PATH})
     if (LIBGCC)
         file(COPY ${LIBGCC} DESTINATION ${CMAKE_BINARY_DIR}/bin/)
     endif()
-    find_library(LIBSTDCPP NAMES "libstdc++-6.dll" PATHS ${CMAKE_FIND_ROOT_PATH})
+    find_file(LIBSTDCPP NAMES "libstdc++-6.dll" PATHS ${CMAKE_FIND_ROOT_PATH})
     if (LIBSTDCPP)
         file(COPY ${LIBSTDCPP} DESTINATION ${CMAKE_BINARY_DIR}/bin/)
     endif()
-    find_library(LIBPTHREAD NAMES "winpthread-1.dll" "libwinpthread-1.dll" "pthreadGC2.dll" PATHS ${CMAKE_FIND_ROOT_PATH})
+    find_file(LIBPTHREAD NAMES "winpthread-1.dll" "libwinpthread-1.dll" "pthreadGC2.dll" PATHS ${CMAKE_FIND_ROOT_PATH})
     if(LIBPTHREAD)
         file(COPY ${LIBPTHREAD} DESTINATION ${CMAKE_BINARY_DIR}/bin/)
     endif()

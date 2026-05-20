@@ -71,13 +71,15 @@ namespace SkinConfig
     static std::string m_color_emoji_ttf;
     static std::vector<std::string> m_icon_theme_paths;
     static bool m_font;
+    static bool m_horizontal_cut;
+    static bool m_vertical_cut;
 
-    static void parseElement(const XMLNode* node)
+    static void parseElement(const XMLNode* node, std::vector<std::string>& skin_paths)
     {
         std::string type;
         std::string state = "neutral";
         std::string image;
-        bool common_img = false;
+        bool common_img = false, parent_img = false;
         int leftborder = 0, rightborder=0, topborder=0, bottomborder=0;
         float hborder_out_portion = 0.5f, vborder_out_portion = 1.0f;
         float horizontal_inner_padding = 0.0f, vertical_inner_padding = 0.0f;
@@ -98,6 +100,16 @@ namespace SkinConfig
             return;
         }
 
+        // We use these parameters to know if the background image should be
+        // stretched or cut when its aspect ratio is different from the screen's
+        if (type == "background")
+        {
+            m_horizontal_cut = false;
+            m_vertical_cut = false;
+            node->get("horizontal-cut", &m_horizontal_cut);
+            node->get("vertical-cut", &m_vertical_cut);
+        }
+
         node->get("left_border", &leftborder);
         node->get("right_border", &rightborder);
         node->get("top_border", &topborder);
@@ -116,6 +128,7 @@ namespace SkinConfig
 
         node->get("areas", &areas);
         node->get("common", &common_img);
+        node->get("parent", &parent_img);
 
         BoxRenderParams new_param;
         new_param.m_left_border = leftborder;
@@ -130,12 +143,23 @@ namespace SkinConfig
         new_param.m_vertical_margin = vertical_margin;
         new_param.m_preserve_h_aspect_ratios = preserve_h_aspect_ratios;
 
-        // call last since it calculates coords considering all other
-        // parameters
+        // The call to an image in the parent folder only allows to go one level higher.
+        // Having a child skin rely on how many levels deeper it is in a chain of base themes
+        // to fetch a texture would bring its own issues, although this code could be
+        // easily adapted to allow it if truly needed.
+        if (parent_img && skin_paths.size() == 1)
+        {
+            parent_img = false;
+            Log::error("skin", "Requesting images from the base theme folder without a base theme\n");
+        }
+
         new_param.setTexture(common_img ?
             irr_driver->getTexture(FileManager::SKIN, std::string("common/") + image) :
+            parent_img ? irr_driver->getTexture(skin_paths[skin_paths.size() - 2] + "/" + image) :
             irr_driver->getTexture(m_data_path + image));
 
+        // call last since it calculates coords considering all other
+        // parameters
         if (areas.size() > 0)
         {
             new_param.areas = 0;
@@ -184,7 +208,7 @@ namespace SkinConfig
       * \brief loads skin information from a STK skin file
       * \throw std::runtime_error if file cannot be read
       */
-    static void loadFromFile(std::string file, bool clear_prev_params)
+    static void loadFromFile(std::string file, bool clear_prev_params, std::vector<std::string>& skin_paths)
     {
         m_data_path.clear();
         if (clear_prev_params)
@@ -231,7 +255,7 @@ namespace SkinConfig
 
             if (node->getName() == "element")
             {
-                parseElement(node);
+                parseElement(node, skin_paths);
             }
             else if (node->getName() == "color")
             {
@@ -559,42 +583,18 @@ Skin::Skin(IGUISkin* fallback_skin)
 
     try
     {
-        std::vector<std::string> load_chain = SkinConfig::getDependencyChain(skin_id);
-
-        bool reset = true;
-        for (auto skin_id : load_chain)
-        {
-            std::string skin_name = skin_id.find("addon_") != std::string::npos ?
-                file_manager->getAddonsFile(
-                    std::string("skins/") + skin_id.substr(6) + "/stkskin.xml") :
-                file_manager->getAsset(FileManager::SKIN, skin_id + "/stkskin.xml");
-
-            Log::info("GUI", "Loading skin data from file: %s", skin_name.c_str());
-            SkinConfig::loadFromFile(skin_name, reset);
-            reset = false;
-        }
+        chainLoad(skin_id);
     }
     catch (std::runtime_error& e)
     {
         (void)e;   // avoid compiler warning
         // couldn't load skin. Try to revert to default
+
         Log::error("GUI", "Could not load skin, reverting to default.");
         UserConfigParams::m_skin_file.revertToDefaults();
         skin_id = UserConfigParams::m_skin_file;
-        std::vector<std::string> load_chain = SkinConfig::getDependencyChain(skin_id);
 
-        bool reset = true;
-        for (auto skin_id : load_chain)
-        {
-            std::string skin_name = skin_id.find("addon_") != std::string::npos ?
-                file_manager->getAddonsFile(
-                    std::string("skins/") + skin_id.substr(6) + "/stkskin.xml") :
-                file_manager->getAsset(FileManager::SKIN, skin_id + "/stkskin.xml");
-
-            Log::info("GUI", "Loading skin data from file: %s", skin_name.c_str());
-            SkinConfig::loadFromFile(skin_name, reset);
-            reset = false;
-        }
+        chainLoad(skin_id);
     }
 
     m_bg_image = NULL;
@@ -614,6 +614,27 @@ Skin::~Skin()
         m_fallback_skin->drop();
 }   // ~Skin
 
+void Skin::chainLoad(std::string skin_id)
+{
+    m_skin_paths.clear();
+    std::vector<std::string> load_chain = SkinConfig::getDependencyChain(skin_id);
+
+    bool reset = true;
+    for (auto skin_id : load_chain)
+    {
+        std::string skin_path = skin_id.find("addon_") != std::string::npos ?
+            file_manager->getAddonsFile(std::string("skins/") + skin_id.substr(6)) :
+            file_manager->getAsset(FileManager::SKIN, skin_id);
+        m_skin_paths.push_back(skin_path);
+
+        skin_path += "/stkskin.xml";
+
+        Log::info("GUI", "Loading skin data from file: %s", skin_path.c_str());
+        SkinConfig::loadFromFile(skin_path, reset, m_skin_paths);
+        reset = false;
+    }
+} // chainLoad
+
 // ----------------------------------------------------------------------------
 void Skin::drawBgImage()
 {
@@ -626,11 +647,10 @@ void Skin::drawBgImage()
     static core::recti dest;
     static core::recti source_area;
 
-    if(m_bg_image == NULL)
+    if (m_bg_image == NULL)
     {
         int texture_w, texture_h;
-        m_bg_image =
-            SkinConfig::m_render_params["background::neutral"].getImage();
+        m_bg_image = SkinConfig::m_render_params["background::neutral"].getImage();
         assert(m_bg_image != NULL);
         texture_w = m_bg_image->getSize().Width;
         texture_h = m_bg_image->getSize().Height;
@@ -641,25 +661,69 @@ void Skin::drawBgImage()
         const int screen_w = frame_size.Width;
         const int screen_h = frame_size.Height;
 
-        // stretch image vertically to fit
-        float ratio = (float)screen_h / texture_h;
+        // Calculate aspect ratios for the image and the screen
+        float image_ratio = (float)texture_w / texture_h;
+        float screen_ratio = (float)screen_w / screen_h;
 
-        // check that with the vertical stretching, it still fits horizontally
-        while(texture_w*ratio < screen_w) ratio += 0.1f;
+        float factor_h, factor_w;
 
-        texture_w = (int)(texture_w*ratio);
-        texture_h = (int)(texture_h*ratio);
+        // ----------------------------------------------------------
+        // Fill the screen without distorting the image.
+        //
+        // The dimension (horizontal or vertical) furthest away is scaled to be able
+        // to cover the entire screen.
+        // Then the other dimension is either scaled uniformly (if cropping is preferred
+        // over stretching) or non-uniformly (if stretching is preferred over cropping)
+        // ----------------------------------------------------------
 
-        const int clipped_x_space = (texture_w - screen_w);
+        if (screen_ratio > image_ratio) // Screen has a wider ratio than the bg image
+        {
+            if (SkinConfig::m_vertical_cut)
+            {
+                // Scale to fit width, allow vertical crop
+                factor_w = (float)screen_w / texture_w;
+                factor_h = factor_w;
+            }
+            else
+            {
+                // Cannot crop vertically → stretch both width and height to fit
+                factor_h = (float)screen_h / texture_h;
+                factor_w = (float)screen_w / texture_w;
+            }
+        }
+        else // Screen has taller ratio than the bg image
+        {
+            if (SkinConfig::m_horizontal_cut)
+            {
+                // Scale to fit height, allow horizontal crop
+                factor_h = (float)screen_h / texture_h;
+                factor_w = factor_h;
+            }
+            else
+            {
+                // Cannot crop horizontally → stretch both width and height to fit
+                factor_h = (float)screen_h / texture_h;
+                factor_w = (float)screen_w / texture_w;
+            }
+        }
 
-        dest = core::recti(-clipped_x_space/2, 0,
-                               screen_w+clipped_x_space/2, screen_h);
+        // Scale the original image dimensions
+        int scaled_w = (int)(texture_w * factor_w);
+        int scaled_h = (int)(texture_h * factor_h);
+
+        // Center the image on screen
+        int offset_x = (screen_w - scaled_w) / 2;
+        int offset_y = (screen_h - scaled_h) / 2;
+
+        dest = core::recti(offset_x, offset_y,
+                           offset_x + scaled_w, offset_y + scaled_h);
     }
 
+    // Render the background image to the screen
     irr_driver->getVideoDriver()->enableMaterial2D();
     draw2DImage(m_bg_image, dest, source_area,
-                                        /* no clipping */0, /*color*/ 0,
-                                        /*alpha*/false);
+                /* no clipping */0, /*color*/ 0,
+                /*alpha*/false);
     irr_driver->getVideoDriver()->enableMaterial2D(false);
 #endif
 }   // drawBgImage
@@ -1051,6 +1115,19 @@ void Skin::drawButton(Widget* w, const core::recti &rect,
                                 SkinConfig::m_render_params["button::neutral"],
                                 w->m_deactivated);
         }   // if not deactivated or focused
+        
+        // Check for tooltips even on deactivated widgets
+        if (w->hasTooltip())
+        {
+            const core::position2di mouse_position =
+                irr_driver->getDevice()->getCursorControl()->getPosition();
+
+            if (sized_rect.isPointInside(mouse_position))
+            {
+                m_tooltip_at_mouse.push_back(true);
+                m_tooltips.push_back(w);
+            }
+        }
     }
     else   // not within an appearing dialog
     {
@@ -1072,6 +1149,19 @@ void Skin::drawButton(Widget* w, const core::recti &rect,
                                 SkinConfig::m_render_params["button::neutral"],
                                 w->m_deactivated);
         }   // if not deactivated or focused
+        
+        // Check for tooltips even on deactivated widgets
+        if (w->hasTooltip())
+        {
+            const core::position2di mouse_position =
+                irr_driver->getDevice()->getCursorControl()->getPosition();
+
+            if (rect.isPointInside(mouse_position))
+            {
+                m_tooltip_at_mouse.push_back(true);
+                m_tooltips.push_back(w);
+            }
+        }
     }   // not within an appearing dialog
 }   // drawButton
 
@@ -1185,7 +1275,7 @@ void Skin::drawRatingBar(Widget *w, const core::recti &rect,
 
         core::recti source_area = core::recti(0, 0, texture_w, texture_h);
 
-        float scale = (float)std::min(irr_driver->getActualScreenSize().Height / 1080.0f, 
+        float scale = (float)std::min(irr_driver->getActualScreenSize().Height / 1080.0f,
                                     irr_driver->getActualScreenSize().Width / 1350.0f);
         int size = (int)((90.0f + grow) * scale);
         const core::recti rect2(glow_center_x - size,
@@ -1587,7 +1677,7 @@ void Skin::drawRibbonChild(const core::recti &rect, Widget* widget,
 
                 core::recti source_area(0, 0, texture_w, texture_h);
 
-                float scale = (float)std::min(irr_driver->getActualScreenSize().Height / 1080.0f, 
+                float scale = (float)std::min(irr_driver->getActualScreenSize().Height / 1080.0f,
                                             irr_driver->getActualScreenSize().Width / 1350.0f);
                 int size = (int)((90.0f + grow) * scale);
                 const core::recti rect2(glow_center_x - size,
@@ -1616,6 +1706,16 @@ void Skin::drawRibbonChild(const core::recti &rect, Widget* widget,
 
     if (parent_focused && parentRibbon->m_mouse_focus == widget)
     {
+        if (rect.isPointInside(irr_driver->getDevice()->getCursorControl()
+                                                      ->getPosition()))
+        {
+            m_tooltip_at_mouse.push_back(true);
+            m_tooltips.push_back(widget);
+        }
+    }
+    else if (widget->hasTooltip())
+    {
+        // Check tooltips for deactivated widgets too
         if (rect.isPointInside(irr_driver->getDevice()->getCursorControl()
                                                       ->getPosition()))
         {
@@ -1811,6 +1911,18 @@ void Skin::drawSpinnerBody(const core::recti &rect, Widget* widget,
         m_tooltip_at_mouse.push_back(false);
         m_tooltips.push_back(widget);
     }
+    else if (widget->hasTooltip())
+    {
+        // Check tooltips for deactivated widgets too
+        const core::position2di mouse_position =
+            irr_driver->getDevice()->getCursorControl()->getPosition();
+
+        if (sized_rect.isPointInside(mouse_position))
+        {
+            m_tooltip_at_mouse.push_back(true);
+            m_tooltips.push_back(widget);
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -1840,7 +1952,16 @@ void Skin::drawSpinnerChild(const core::recti &rect, Widget* widget,
         return;
 
     SpinnerWidget* spinner = dynamic_cast<SpinnerWidget*>(widget->m_event_handler);
-    bool spinner_focused = spinner->isFocusedForPlayer(PLAYER_ID_GAME_MASTER);
+    
+    bool spinner_focused = false;
+    for (unsigned i = 1; i < MAX_PLAYER_COUNT + 1; i++)
+    {
+        if (spinner->isFocusedForPlayer(i - 1))
+        {
+            spinner_focused = true;
+            break;
+        }
+    }
 
     if (pressed || (spinner->isButtonSelected(right) && spinner_focused))
     {
@@ -1897,7 +2018,7 @@ void Skin::drawIconButton(const core::recti &rect, Widget* widget,
 
         core::recti source_area = core::recti(0, 0, texture_w, texture_h);
 
-        float scale = (float)std::min(irr_driver->getActualScreenSize().Height / 1080.0f, 
+        float scale = (float)std::min(irr_driver->getActualScreenSize().Height / 1080.0f,
                                     irr_driver->getActualScreenSize().Width / 1350.0f);
         int size = (int)((90.0f + grow) * scale);
         const core::recti rect2(glow_center_x - size,
@@ -2071,6 +2192,18 @@ void Skin::drawCheckBox(const core::recti &rect, Widget* widget, bool focused)
             m_tooltips.push_back(widget);
         }
     }
+    else if (widget->hasTooltip())
+    {
+        // Check tooltips for deactivated widgets too
+        const core::position2di mouse_position =
+            irr_driver->getDevice()->getCursorControl()->getPosition();
+
+        if (rect.isPointInside(mouse_position))
+        {
+            m_tooltip_at_mouse.push_back(true);
+            m_tooltips.push_back(widget);
+        }
+    }
 }   // drawCheckBox
 
 // ----------------------------------------------------------------------------
@@ -2144,7 +2277,7 @@ void Skin::drawListHeader(const irr::core::rect< irr::s32 > &rect,
 void Skin::renderSections(PtrVector<Widget>* within_vector)
 {
 #ifndef SERVER_ONLY
-    if (within_vector == NULL && getCurrentScreen()) 
+    if (within_vector == NULL && getCurrentScreen())
         within_vector = &getCurrentScreen()->m_widgets;
         
     if (!within_vector)
@@ -2310,13 +2443,42 @@ void Skin::drawTooltip(Widget* widget, bool atMouse)
     irr::gui::ScalableFont* font = GUIEngine::getSmallFont();
     core::dimension2d<u32> size =
         font->getDimension(widget->getTooltipText().c_str());
+    
     core::position2di pos(widget->m_x + 15, widget->m_y + widget->m_h);
+    const core::dimension2d<u32> screen_size = irr_driver->getActualScreenSize();
+    BoxRenderParams& params = SkinConfig::m_render_params["tooltip::neutral"];
+    // Space from the screen's edge so the tooltip doesn't get cut off
+    int h_margin = std::max(params.m_left_border, params.m_right_border)
+                         * params.m_hborder_out_portion;
+    int v_margin = std::max(params.m_top_border, params.m_bottom_border);
+
+    // Account for the tooltip borders being potentially scaled down on small resolutions
+    // We also add 2 to have a small cushion between tooltip and screen border.
+    int texture_h = params.getImage()->getSize().Height;
+    const float yscale = std::min<float>(1.0, (float)(size.Height)/texture_h);
+    h_margin = 2 + h_margin * yscale;
+    v_margin = 2 + v_margin * yscale;
 
     if (atMouse)
     {
-        pos = irr_driver->getDevice()->getCursorControl()->getPosition()
-            + core::position2di(10 - size.Width / 2, 20);
+        pos = irr_driver->getDevice()->getCursorControl()->getPosition();
+        pos.X -= size.Width / 2;
+        pos.Y += 20;
     }
+
+    // Prevent horizontal overflows
+    if (pos.X + (int)size.Width > (int)screen_size.Width - h_margin)
+        pos.X = (int)screen_size.Width - size.Width - h_margin;
+
+    if (pos.X < h_margin)
+        pos.X = h_margin;
+
+    // Prevent vertical overflows
+    if (pos.Y < v_margin) 
+        pos.Y = v_margin;
+
+    if (pos.Y + (int)size.Height > (int)screen_size.Height - v_margin)
+        pos.Y = (int)screen_size.Height - (int)size.Height - v_margin - 20;
 
     core::recti r(pos, size);
     drawBoxFromStretchableTexture(widget, r,

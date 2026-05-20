@@ -407,7 +407,7 @@ void RaceGUIBase::drawPowerupIcons(const AbstractKart* kart,
     int x1, y1;
 
     // When there is not much height or set by user, move items on the side
-    if ((UserConfigParams::m_powerup_display == 1) || 
+    if ((UserConfigParams::m_powerup_display == 1) ||
         ((float) viewport.getWidth() / (float) viewport.getHeight() > 2.0f))
     {
         x1 = viewport.UpperLeftCorner.X  + 3*(viewport.getWidth()/4)
@@ -807,10 +807,8 @@ void RaceGUIBase::drawGlobalPlayerIcons(int bottom_margin)
     unsigned int sta = RaceManager::get()->getNumSpareTireKarts();
     unsigned int total_karts = RaceManager::get()->getNumberOfKarts() - sta;
     unsigned int num_karts = 0;
-    if (NetworkConfig::get()->isNetworking())
-        num_karts = World::getWorld()->getCurrentNumKarts();
-    else
-        num_karts = RaceManager::get()->getNumberOfKarts() - sta;
+    num_karts = World::getWorld()->getCurrentNumKarts();
+
     // May happen in spectate mode if all players disconnected before server
     // reset
     if (num_karts == 0)
@@ -863,7 +861,7 @@ void RaceGUIBase::drawGlobalPlayerIcons(int bottom_margin)
     const unsigned int kart_amount = world->getNumKarts() - sta;
 
     //where is the limit to hide last icons
-    int y_icons_limit = irr_driver->getActualScreenSize().Height - 
+    int y_icons_limit = irr_driver->getActualScreenSize().Height -
                                             bottom_margin - ICON_PLAYER_WIDTH;
     if (RaceManager::get()->getIfEmptyScreenSpaceExists())
     {

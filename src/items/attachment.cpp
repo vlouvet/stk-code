@@ -264,7 +264,7 @@ void Attachment::rewindTo(BareNetworkString *buffer)
 
 // -----------------------------------------------------------------------------
 /** Selects the new attachment. In order to simplify synchronisation with the
- *  server, the new item is based on the current world time. 
+ *  server, the new item is based on the current world time.
  *  \param item The item that was collected.
  */
 void Attachment::hitBanana(ItemState *item_state)
@@ -328,8 +328,8 @@ void Attachment::hitBanana(ItemState *item_state)
         // default time. This is necessary to avoid that a kart lands on the
         // same banana again once the explosion animation is finished, giving
         // the kart the same penalty twice.
-        int ticks = 
-            std::max(item_state->getTicksTillReturn(), 
+        int ticks =
+            std::max(item_state->getTicksTillReturn(),
                      stk_config->time2Ticks(kp->getExplosionDuration() + 2.0f));
         item_state->setTicksTillReturn(ticks);
         break;
@@ -424,7 +424,7 @@ void Attachment::handleCollisionWithKart(AbstractKart *other)
             {
                 // Don't move if this bomb was from other kart originally
                 other->getAttachment()
-                    ->set(ATTACH_BOMB, 
+                    ->set(ATTACH_BOMB,
                           getTicksLeft()+stk_config->time2Ticks(
                                            stk_config->m_bomb_time_increase),
                           m_kart);
@@ -434,7 +434,7 @@ void Attachment::handleCollisionWithKart(AbstractKart *other)
         }
     }   // type==BOMB
     else if(attachment_other->getType()==Attachment::ATTACH_BOMB &&
-             (attachment_other->getPreviousOwner()!=m_kart || 
+             (attachment_other->getPreviousOwner()!=m_kart ||
                World::getWorld()->getNumKarts() <= 2         )      )
     {
         // Don't attach a bomb when the kart is shielded
@@ -617,9 +617,34 @@ void Attachment::updateGraphics(float dt)
             World::getWorld()->getTicksSinceStart()) / 0.7f;
         if (scale_ratio > 0.0f)
         {
-            float scale = 0.3f * scale_ratio +
-                wanted_node_scale * (1.0f - scale_ratio);
-            m_node->setScale(core::vector3df(scale, scale, scale));
+            if (m_type == ATTACH_PARACHUTE)
+            {
+                const float progress = 1.0f - scale_ratio;
+
+                const float x = 0.2f * atan(20.0f * progress - 5.0f) + 0.7f;
+                const float y = x;
+                const float z = 1.0f - pow(2.0f, -15.f * progress);
+
+                m_node->setScale(core::vector3df(x * wanted_node_scale,
+                                                 y * wanted_node_scale,
+                                                 z * wanted_node_scale));
+            }
+            else
+            {
+                if (is_shield)
+                {
+                    // Taken from https://easings.net/#easeInElastic
+                    const float c4 = (2.0f * PI) / 3.0f;
+                    const float x = scale_ratio;
+
+                    scale_ratio = x <= 0 ? 0 : x >= 1 ? 1
+                      : -pow(2, 8 * x - 8) * sin((x * 8 - 8.75) * c4);
+                }
+
+                float scale = 0.3f * scale_ratio +
+                    wanted_node_scale * (1.0f - scale_ratio);
+                m_node->setScale(core::vector3df(scale, scale, scale));
+            }
         }
         else
         {
@@ -684,7 +709,7 @@ void Attachment::updateGraphics(float dt)
  */
 float Attachment::weightAdjust() const
 {
-    return m_type == ATTACH_ANVIL 
-           ? m_kart->getKartProperties()->getAnvilWeight() 
+    return m_type == ATTACH_ANVIL
+           ? m_kart->getKartProperties()->getAnvilWeight()
           : 0.0f;
 }   // weightAdjust

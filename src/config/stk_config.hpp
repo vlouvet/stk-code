@@ -227,7 +227,8 @@ public:
     uint16_t m_client_port;
     uint16_t m_server_port;
 
-    /* URLs for donating and reseting the password */
+    /* URLs for the stk website, donating and reseting the password */
+    std::string m_stk_website_url;
     std::string m_donate_url;
     std::string m_password_reset_url;
     std::string m_assets_download_url;
@@ -265,6 +266,12 @@ public:
      *  version. */
     std::set<std::string> m_network_capabilities;
 
+    /** List of replays meant for use in benchmarking */
+    std::vector<std::string> m_benchmark_files;
+
+    /** The currently selected benchmark file */
+    std::string m_active_benchmark_file;
+
 private:
     /** True if stk_config has been loaded. This is necessary if the
      *  --stk-config command line parameter has been specified to avoid
@@ -292,6 +299,7 @@ public:
     void load(const std::string &filename);
     const std::string &getMainMenuPicture(int n);
     const std::string &getBackgroundPicture(int n);
+    void validateBenchmarkReplays();
     void initMusicFiles();
     void  getAllScores(std::vector<int> *all_scores, int num_karts);
     // ------------------------------------------------------------------------

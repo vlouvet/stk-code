@@ -24,6 +24,7 @@ STK_DESKTOP_FILE_P1 = """[Desktop Entry]
 # Split it to avoid SuperTuxKart being translated
 STK_DESKTOP_FILE_P2 = """Name=SuperTuxKart
 Icon=supertuxkart
+StartupWMClass=supertuxkart
 """
 STK_DESKTOP_FILE_P3 = """#I18N: Generic name in desktop file entry, summary in AppData and short description in Google Play
 GenericName=""" + STK_DESCRIPTION + """
@@ -101,6 +102,10 @@ STK_APPDATA_FILE_4 = """    <p>
     </p>
 """
 STK_APPDATA_FILE_5 = """  </description>
+  <branding>
+    <color type="primary" scheme_preference="light">#7c6e6e</color>
+    <color type="primary" scheme_preference="dark">#392828</color>
+  </branding>
   <screenshots>
     <screenshot type=\"default\">
       <image>https://supertuxkart.net/assets/wiki/STK1.3_1.jpg</image>
@@ -129,17 +134,6 @@ STK_APPDATA_FILE_5 = """  </description>
     <content_attribute id=\"violence-cartoon\">mild</content_attribute>
     <content_attribute id=\"social-chat\">intense</content_attribute>
   </content_rating>
-  <releases>
-    <release version="1.4" date="2022-10-31">
-      <url>https://blog.supertuxkart.net/2022/11/supertuxkart-14-release.html</url>
-    </release>
-    <release version="1.3" date="2021-09-28">
-      <url>https://blog.supertuxkart.net/2021/09/supertuxkart-13-release.html</url>
-    </release>
-    <release version="1.2" date="2020-08-27"/>
-    <release version="1.1" date="2020-01-05"/>
-    <release version="1.0" date="2019-04-21"/>
-  </releases>
   <languages>
 """
 STK_APPDATA_FILE_6 = """  </languages>

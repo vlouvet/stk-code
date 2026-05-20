@@ -195,7 +195,7 @@ void CentralVideoSettings::init()
             Log::info("GLDriver", "Geometry Shaders Present");
         }
         if (!GraphicsRestrictions::isDisabled(GraphicsRestrictions::GR_TEXTURE_BUFFER_OBJECT) &&
-            m_glsl == true) 
+            m_glsl == true)
         {
             hasTextureBufferObject = true;
             Log::info("GLDriver", "ARB Texture Buffer Object Present");
@@ -254,7 +254,7 @@ void CentralVideoSettings::init()
         }
 
         if (!GraphicsRestrictions::isDisabled(GraphicsRestrictions::GR_UNIFORM_BUFFER_OBJECT) &&
-            m_glsl == true) 
+            m_glsl == true)
         {
             hasUBO = true;
             Log::info("GLDriver", "ARB Uniform Buffer Object Present");
@@ -284,7 +284,7 @@ void CentralVideoSettings::init()
         }
         
         if (!GraphicsRestrictions::isDisabled(GraphicsRestrictions::GR_EXT_TEXTURE_COMPRESSION_S3TC) &&
-            (hasGLExtension("GL_EXT_texture_compression_s3tc") || 
+            (hasGLExtension("GL_EXT_texture_compression_s3tc") ||
              hasGLExtension("GL_ANGLE_texture_compression_dxt5")))
         {
             hasTextureCompression = true;
@@ -292,7 +292,7 @@ void CentralVideoSettings::init()
         }
         
         if (!GraphicsRestrictions::isDisabled(GraphicsRestrictions::GR_EXT_TEXTURE_COMPRESSION_S3TC) &&
-            (hasGLExtension("GL_EXT_texture_compression_s3tc_srgb") || 
+            (hasGLExtension("GL_EXT_texture_compression_s3tc_srgb") ||
              hasGLExtension("GL_NV_sRGB_formats")))
         {
             hasTextureCompressionSRGB = true;

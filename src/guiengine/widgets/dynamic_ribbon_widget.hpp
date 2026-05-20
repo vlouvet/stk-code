@@ -124,6 +124,10 @@ namespace GUIEngine
         int m_row_amount;
         int m_col_amount;
 
+        /** The ratio between the targeted child height and the maximum height that would fit with
+            with the current row amount. It is applied to both height and width. */
+        float m_size_ratio;
+
         /** The total number of columns given item count and row count (even counting not visible with current scrolling) */
         int m_needed_cols;
 
@@ -325,8 +329,8 @@ namespace GUIEngine
         void setMaxLabelLength(int length) { m_max_label_length = length; }
 
         void registerScrollCallback(void (*callback)(void* data), void* data)
-        { 
-            m_scroll_callback.callback = callback; 
+        {
+            m_scroll_callback.callback = callback;
             m_scroll_callback.data = data;
         }
     };

@@ -53,6 +53,11 @@
 
 #include <IrrlichtDevice.h>
 
+#ifndef SERVER_ONLY
+#include <ge_main.hpp>
+#include <ge_vulkan_driver.hpp>
+#endif
+
 using namespace GUIEngine;
 using namespace irr::core;
 using namespace irr::gui;
@@ -66,6 +71,7 @@ RacePausedDialog::RacePausedDialog(const float percentWidth,
     m_target_team = KART_TEAM_NONE;
     m_self_destroy = false;
     m_from_overworld = false;
+    m_vk_pbr_toggle = NULL;
 
     if (dynamic_cast<OverWorld*>(World::getWorld()) != NULL)
     {
@@ -303,12 +309,12 @@ GUIEngine::EventPropagation
                 m_touch_controls = MULTITOUCH_CONTROLS_STEERING_WHEEL;
             }
             
-            if (m_touch_controls == MULTITOUCH_CONTROLS_ACCELEROMETER && 
+            if (m_touch_controls == MULTITOUCH_CONTROLS_ACCELEROMETER &&
                 !accelerometer_available)
             {
                 m_touch_controls = MULTITOUCH_CONTROLS_STEERING_WHEEL;
             }
-            else if (m_touch_controls == MULTITOUCH_CONTROLS_GYROSCOPE && 
+            else if (m_touch_controls == MULTITOUCH_CONTROLS_GYROSCOPE &&
                 !gyroscope_available)
             {
                 m_touch_controls = MULTITOUCH_CONTROLS_STEERING_WHEEL;
@@ -362,14 +368,32 @@ GUIEngine::EventPropagation
         }
         else if (selection == "help")
         {
+            GE::GEVulkanDriver* vk_pbr_toggle = m_vk_pbr_toggle;
             dismiss();
-            HelpScreen1::getInstance()->push();
+#ifndef SERVER_ONLY
+#ifdef _IRR_COMPILE_WITH_VULKAN_
+            if (vk_pbr_toggle)
+            {
+                UserConfigParams::m_dynamic_lights = !UserConfigParams::m_dynamic_lights;
+                GE::getGEConfig()->m_pbr = UserConfigParams::m_dynamic_lights;
+                vk_pbr_toggle->updateDriver(false/*scale_changed*/, true/*pbr_changed*/);
+            }
+            else
+#else
+            (void)vk_pbr_toggle;
+#endif
+            {
+                HelpScreen1::getInstance()->push();
+            }
+#endif
             return GUIEngine::EVENT_BLOCK;
         }
         else if (selection == "options")
         {
             dismiss();
+#ifndef SERVER_ONLY
             OptionsScreenGeneral::getInstance()->push();
+#endif
             return GUIEngine::EVENT_BLOCK;
         }
         else if (selection == "restart")
@@ -442,7 +466,24 @@ void RacePausedDialog::beforeAddingWidgets()
     {
         index = choice_ribbon->findItemNamed("help");
         if (index != -1)
-            choice_ribbon->setItemVisible(index, false);
+        {
+#ifndef SERVER_ONLY
+#ifdef _IRR_COMPILE_WITH_VULKAN_
+            m_vk_pbr_toggle = GE::getVKDriver();
+#else
+            m_vk_pbr_toggle = NULL;
+#endif
+            if (m_vk_pbr_toggle)
+            {
+                IconButtonWidget* hw = getWidget<IconButtonWidget>("help");
+                IconButtonWidget* ew = getWidget<IconButtonWidget>("exit");
+                hw->m_properties[PROP_ID] = "exit";
+                ew->m_properties[PROP_ID] = "help";
+            }
+            else
+                choice_ribbon->setItemVisible(index, false);
+#endif
+        }
         index = choice_ribbon->findItemNamed("options");
         if (index != -1)
             choice_ribbon->setItemVisible(index, false);
@@ -494,7 +535,7 @@ void RacePausedDialog::beforeAddingWidgets()
         
     bool has_multitouch_gui = false;
     
-    if (World::getWorld() && World::getWorld()->getRaceGUI() && 
+    if (World::getWorld() && World::getWorld()->getRaceGUI() &&
         World::getWorld()->getRaceGUI()->getMultitouchGUI() &&
         !World::getWorld()->getRaceGUI()->getMultitouchGUI()->isSpectatorMode())
     {
@@ -519,7 +560,19 @@ void RacePausedDialog::init()
 {
     m_touch_controls = UserConfigParams::m_multitouch_controls;
     updateTouchDeviceIcon();
-    
+#ifndef SERVER_ONLY
+    if (m_vk_pbr_toggle)
+    {
+        IconButtonWidget* widget = getWidget<IconButtonWidget>("help");
+        widget->setLabel(UserConfigParams::m_dynamic_lights ?
+            _("Disable advanced pipeline") : _("Enable advanced pipeline"));
+        widget->setImage(irr_driver->getTexture(FileManager::GUI_ICON,
+            "options_video.png"));
+        widget = getWidget<IconButtonWidget>("exit");
+        widget->setImage(irr_driver->getTexture(FileManager::GUI_ICON,
+            "main_quit.png"));
+    }
+#endif
 }   // init
 
 // ----------------------------------------------------------------------------
@@ -565,17 +618,17 @@ void RacePausedDialog::updateTouchDeviceIcon()
     case MULTITOUCH_CONTROLS_UNDEFINED:
     case MULTITOUCH_CONTROLS_STEERING_WHEEL:
         widget->setLabel(_("Steering wheel"));
-        widget->setImage(irr_driver->getTexture(FileManager::GUI_ICON, 
+        widget->setImage(irr_driver->getTexture(FileManager::GUI_ICON,
                                                 "android/steering_wheel.png"));
         break;
     case MULTITOUCH_CONTROLS_ACCELEROMETER:
         widget->setLabel(_("Accelerometer"));
-        widget->setImage(irr_driver->getTexture(FileManager::GUI_ICON, 
+        widget->setImage(irr_driver->getTexture(FileManager::GUI_ICON,
                                                 "android/accelerator_icon.png"));
         break;
     case MULTITOUCH_CONTROLS_GYROSCOPE:
         widget->setLabel(_("Gyroscope"));
-        widget->setImage(irr_driver->getTexture(FileManager::GUI_ICON, 
+        widget->setImage(irr_driver->getTexture(FileManager::GUI_ICON,
                                                 "android/gyroscope_icon.png"));
         break;
     default:

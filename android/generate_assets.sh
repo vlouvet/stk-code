@@ -19,13 +19,6 @@
 
 ################################################################################
 
-# Prefer ImageMagick 7's "magick" command; fall back to "convert" for IM6.
-if command -v magick >/dev/null 2>&1; then
-    CONVERT_CMD="magick"
-else
-    CONVERT_CMD="convert"
-fi
-
 export KARTS_DEFAULT="all"
 export TRACKS_DEFAULT="all"
 
@@ -149,6 +142,12 @@ if [ ! -d "../data" ]; then
     exit 1
 fi
 
+# Use `magick` when it's available
+if command -v magick > /dev/null; then
+    MAGICK='magick'
+else
+    MAGICK='convert'
+fi
 
 # Clear previous assets directory
 echo "Clear previous assets directory"
@@ -278,8 +277,10 @@ convert_image()
         QUALITY_CMD="-quality $PNG_QUALITY"
     fi
 
+    # Use mktemp instead of a fixed tmp.$FILE_TYPE so parallel invocations
+    # don't clobber each other's output.
     TMP_FILE="$(mktemp -t stk_conv).$FILE_TYPE"
-    $CONVERT_CMD "$FILE" $SCALE_CMD $QUALITY_CMD "$TMP_FILE"
+    $MAGICK "$FILE" $SCALE_CMD $QUALITY_CMD "$TMP_FILE"
 
     if [ -s "$TMP_FILE" ]; then
         SIZE_OLD=`du -k "$FILE" | cut -f1`
@@ -430,7 +431,7 @@ convert_to_jpg()
     fi
 
     # We can check if new file is smaller
-    $CONVERT_CMD "$FILE" -quality $JPEG_QUALITY "$NEW_FILE"
+    $MAGICK "$FILE" -quality $JPEG_QUALITY "$NEW_FILE"
     rm -f "$FILE"
 
     echo "$FILE" >> "./converted_textures"
@@ -648,7 +649,7 @@ convert_to_jpg_update_xml()
 JOBS="$(getconf _NPROCESSORS_ONLN)"
 
 if [ $DECREASE_QUALITY -gt 0 ]; then
-    export CONVERT_CMD TEXTURE_SIZE JPEG_QUALITY PNG_QUALITY SOUND_MONO SOUND_SAMPLE SOUND_QUALITY
+    export MAGICK TEXTURE_SIZE JPEG_QUALITY PNG_QUALITY SOUND_MONO SOUND_SAMPLE SOUND_QUALITY
     export -f convert_image convert_sound
 
     find "$OUTPUT_PATH/data" -iname "*.png" -print0 | xargs -0 -P "$JOBS" -I {} bash -c 'convert_image "$1" png' _ {}
@@ -660,7 +661,7 @@ fi
 if [ $CONVERT_TO_JPG -gt 0 ]; then
     rm -f "./converted_textures"
     export -f convert_to_jpg convert_to_jpg_extract_b3dz convert_to_jpg_update_b3d convert_to_jpg_update_spm convert_to_jpg_update_xml
-    export CONVERT_CMD JPEG_QUALITY OUTPUT_PATH CONVERT_TO_JPG_BLACKLIST OS_NAME
+    export MAGICK JPEG_QUALITY OUTPUT_PATH CONVERT_TO_JPG_BLACKLIST OS_NAME
 
     # convert_to_jpg appends to ./converted_textures — leave sequential to avoid races
     find "$OUTPUT_PATH/data" -not -path "$OUTPUT_PATH/data/textures/*" \

@@ -23,6 +23,7 @@
 #ifndef PROTOCOL_HPP
 #define PROTOCOL_HPP
 
+#include "network/protocol_enum.hpp"
 #include "utils/no_copy.hpp"
 #include "utils/types.hpp"
 
@@ -32,36 +33,6 @@
 class Event;
 class NetworkString;
 class STKPeer;
-
-
-/** \enum ProtocolType
- *  \brief The types that protocols can have. This is used to select which 
- *   protocol receives which event.
- *  \ingroup network
- */
-enum ProtocolType
-{
-    PROTOCOL_NONE              = 0x00,  //!< No protocol type assigned.
-    PROTOCOL_CONNECTION        = 0x01,  //!< Protocol that deals with client-server connection.
-    PROTOCOL_LOBBY_ROOM        = 0x02,  //!< Protocol that is used during the lobby room phase.
-    PROTOCOL_GAME_EVENTS       = 0x03,  //!< Protocol to communicate the game events.
-    PROTOCOL_CONTROLLER_EVENTS = 0x04,  //!< Protocol to transfer controller modifications
-    PROTOCOL_SILENT            = 0x05,  //!< Used for protocols that do not subscribe to any network event.
-    PROTOCOL_MAX                     ,  //!< Maximum number of different protocol types
-    PROTOCOL_SYNCHRONOUS       = 0x80,  //!< Flag, indicates synchronous delivery
-};   // ProtocolType
-
-// ----------------------------------------------------------------------------
-/** \enum ProtocolState
- *  \brief Defines the three states that a protocol can have.
- */
-enum ProtocolState
-{
-    PROTOCOL_STATE_INITIALISING, //!< The protocol is waiting to be started
-    PROTOCOL_STATE_RUNNING,      //!< The protocol is being updated everytime.
-    PROTOCOL_STATE_PAUSED,       //!< The protocol is paused.
-    PROTOCOL_STATE_TERMINATED    //!< The protocol is terminated/does not exist.
-};   // ProtocolState
 
 class Protocol;
 
@@ -77,6 +48,11 @@ public:
 
     virtual void callback(Protocol *protocol) = 0;
 };   // CallbackObject
+
+namespace ProtocolUtils
+{
+    NetworkString* getNetworkString(ProtocolType type, size_t capacity = 16);
+}
 
 // ============================================================================
 /** \class Protocol
@@ -117,7 +93,6 @@ public:
     virtual void asynchronousUpdate() = 0;
 
     /// functions to check incoming data easily
-    NetworkString* getNetworkString(size_t capacity = 16) const;
     bool checkDataSize(Event* event, unsigned int minimum_size);
     void sendMessageToPeers(NetworkString *message, bool reliable = true);
     void sendMessageToPeersInServer(NetworkString *message,

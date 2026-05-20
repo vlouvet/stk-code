@@ -53,6 +53,7 @@ namespace Online
         class SignInRequest : public XMLRequest
         {
             virtual void callback();
+            irr::core::stringw getLocalizedInfo() const;
         public:
             SignInRequest()
                 : XMLRequest(/*priority*/10) {}
@@ -179,13 +180,14 @@ namespace Online
         }
 
         // Test if failure while showing user login screen
+#ifndef SERVER_ONLY // No GUI files in server builds
         BaseUserScreen *login = dynamic_cast<BaseUserScreen*>(screen);
         if (login)
         {
             if(isSuccess())
                 login->loginSuccessful();
             else
-                login->loginError(getInfo(), !hadDownloadError());
+                login->loginError(getLocalizedInfo(), !hadDownloadError());
         }   // if dialog
 
         // Check if failure happened during automatic (saved) signin.
@@ -198,20 +200,52 @@ namespace Online
                 // to inform user that login failed.
                 // Same thing if a dialog is active, can't navigate to other
                 // screen when a dialog is active
-                MessageQueue::add(MessageQueue::MT_ERROR, getInfo());
+                MessageQueue::add(MessageQueue::MT_ERROR, getLocalizedInfo());
                 return;
             }
 
             // User still at main menu screen, push user screen. Note that
-            // this function is called from the main thread, so we can 
+            // this function is called from the main thread, so we can
             // push screens without synchronisations.
             UserScreen::getInstance()->push();
-            UserScreen::getInstance()->loginError(getInfo(),
+            UserScreen::getInstance()->loginError(getLocalizedInfo(),
                 !hadDownloadError());
         }
-
-
+#endif
     }   // SignInRequest::callback
+
+    // ------------------------------------------------------------------------
+    /** \return the info string, translated if possible.
+     */
+    irr::core::stringw PrivateRequest::SignInRequest::getLocalizedInfo() const
+    {
+        irr::core::stringw info = getInfo();
+        irr::core::stringw password_length = "The password must be between 8 and 60 characters long";
+        irr::core::stringw username_char =
+            "Your username can only contain alphanumeric characters, periods, dashes and underscores";
+        irr::core::stringw username_present = "Username required";
+        irr::core::stringw username_length = "The username must be between 3 and 30 characters long";
+        irr::core::stringw invalid_credentials = "Username or password is invalid";
+        irr::core::stringw session_expired = "Session not valid. Please sign in.";
+
+        // We localize the string from the server if possible ; a 0 from wcscmp indicates a string match
+        // TODO: it would be better to simply have the server send error codes,
+        //       however this solution doesn't require a server-side change or more importantly
+        //       doesn't prevent previous STK versions from interpreting the server message.
+        if (wcscmp(info.c_str(), password_length.c_str()) == 0)
+            info = _("The password must be between %i and %i characters long!", 8, 60);
+        else if (wcscmp(info.c_str(), username_char.c_str()) == 0)
+            info = _("The online username can only contain alphanumeric characters, periods, dashes and underscores!");
+        else if (wcscmp(info.c_str(), username_present.c_str()) == 0 ||
+                 wcscmp(info.c_str(), username_length.c_str()) == 0)
+            info = _("The online username must be between %i and %i characters long!", 3, 30);
+        else if (wcscmp(info.c_str(), invalid_credentials.c_str()) == 0)
+            info = _("The username or the password is invalid!");
+        else if (wcscmp(info.c_str(), session_expired.c_str()) == 0)
+            info = _("Your user session is invalid, please sign in.");
+
+        return info;
+    }   // getLocalizedInfo
 
     // ------------------------------------------------------------------------
     /** Checks the server respond after a login attempt. If the login
@@ -323,8 +357,10 @@ namespace Online
     void OnlinePlayerProfile::signOut(bool success, const XMLNode *input,
                                       const irr::core::stringw &info)
     {
+#ifndef SERVER_ONLY // No GUI files in server builds
         GUIEngine::Screen *screen = GUIEngine::getCurrentScreen();
         BaseUserScreen *user_screen = dynamic_cast<BaseUserScreen*>(screen);
+#endif
 
         // We can't do much of error handling here, no screen waits for
         // a logout to finish, so we can only log the message to screen,
@@ -335,6 +371,7 @@ namespace Online
                       "There were some connection issues while logging out. "
                       "Report a bug if this caused issues.");
             Log::warn("OnlinePlayerProfile::signOut", core::stringc(info.c_str()).c_str());
+#ifndef SERVER_ONLY // No GUI files in server builds
             if (user_screen)
                 user_screen->logoutError(info);
         }
@@ -342,6 +379,7 @@ namespace Online
         {
             if (user_screen)
                 user_screen->logoutSuccessful();
+#endif
         }
 
         ProfileManager::get()->clearPersistent();
@@ -450,27 +488,29 @@ namespace Online
 
                 if (to_notify.size() > 0)
                 {
+                    int num_friends = to_notify.size();
                     core::stringw message("");
-                    if(to_notify.size() == 1)
+                    if(num_friends == 1)
                     {
                         message = _("%s is now online.", to_notify[0]);
                     }
-                    else if(to_notify.size() == 2)
+                    else if(num_friends == 2)
                     {
                         message = _("%s and %s are now online.",
                                     to_notify[0], to_notify[1]    );
                     }
-                    else if(to_notify.size() == 3)
+                    else if(num_friends == 3)
                     {
                         message = _("%s, %s and %s are now online.",
                                  to_notify[0], to_notify[1], to_notify[2]);
                     }
-                    else if(to_notify.size() > 3)
+                    else if(num_friends > 3)
                     {
                         //I18N: Only used for count > 3
-                        message = _P("%d friend is now online.",
-                                     "%d friends are now online.",
-                                     (int)to_notify.size());
+                        message = _P("%i friend is now online.",
+                                     "%i friends are now online.",
+                                     /* to pick the plural form */ num_friends,
+                                     /* to insert in the final string */ num_friends);
                     }
                     MessageQueue::add(MessageQueue::MT_FRIEND, message);
                 }
@@ -550,7 +590,8 @@ namespace Online
             {
                 message = _P("You have %d new friend request!",
                              "You have %d new friend requests!",
-                             friend_request_count);
+                            /* to pick the plural form */ friend_request_count,
+                            /* to insert in the final string */ friend_request_count);
             }
             else
             {

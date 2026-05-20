@@ -126,7 +126,7 @@ void ArenasScreen::beforeAddingWidget()
 
     // Set the item hint to that number to prevent weird formatting
     // Avoid too many items shown at the same time
-    tracks_widget->setItemCountHint(std::min(num_of_arenas + 1, 30)); 
+    tracks_widget->setItemCountHint(std::min(num_of_arenas + 1, 30));
 }
 
 // -----------------------------------------------------------------------------
@@ -351,7 +351,8 @@ void ArenasScreen::buildTrackList()
         w->addItem(_("Random Arena"), "random_track", "/gui/icons/track_random.png");
     w->updateItemDisplay();
 
-    std::random_shuffle( m_random_arena_list.begin(), m_random_arena_list.end() );
+    std::shuffle( m_random_arena_list.begin(), m_random_arena_list.end(),
+                  RandomGenerator::getGenerator());
 }
 
 // ------------------------------------------------------------------------------------------------------

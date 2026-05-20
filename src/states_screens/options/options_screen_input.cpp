@@ -15,6 +15,8 @@
 //  along with this program; if not, write to the Free Software
 //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+#ifndef SERVER_ONLY // No GUI files in server builds
+
 // Manages includes common to all options screens
 #include "states_screens/options/options_common.hpp"
 
@@ -116,12 +118,12 @@ void OptionsScreenInput::buildDeviceList()
             {
                 // since irrLicht's list widget has the nasty tendency to put the
                 // icons very close to the text, I'm adding spaces to compensate.
-                name = (core::stringw("   ") + 
+                name = (core::stringw("   ") +
                              config->getConfigName());
             }
             else
             {
-                name = ("   " + config->getName()).c_str();   
+                name = ("   " + config->getName()).c_str();
 
                 if (config->getNumberOfDevices() > 1)
                 {
@@ -145,7 +147,7 @@ void OptionsScreenInput::buildDeviceList()
                                                         
     if (touch_device != NULL)
     {
-        devices->addItem("touch_device", (core::stringw("   ") + 
+        devices->addItem("touch_device", (core::stringw("   ") +
                                                 _("Touch Device")).c_str(), 4);
     }
 }   // buildDeviceList
@@ -165,7 +167,6 @@ void OptionsScreenInput::init()
     assert( devices != NULL );
     */
 
-
     buildDeviceList();
 
     //devices->updateItemDisplay();
@@ -178,6 +179,7 @@ void OptionsScreenInput::init()
     // Disable adding keyboard configurations
     bool in_game = StateManager::get()->getGameState() == GUIEngine::INGAME_MENU;
     getWidget<ButtonWidget>("add_device")->setActive(!in_game);
+    OptionsCommon::updatePauseTooltip(getWidget<ButtonWidget>("add_device"), in_game);
 
     bool multitouch_enabled = (UserConfigParams::m_multitouch_active == 1 &&
         irr_driver->getDevice()->supportsTouchDevice()) ||
@@ -363,3 +365,5 @@ void OptionsScreenInput::onUpdate(float dt)
     }
     //m_highlights[internal_name]
 }   // onUpdate
+
+#endif // ifndef SERVER_ONLY

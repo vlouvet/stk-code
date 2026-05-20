@@ -62,6 +62,7 @@ public:
         std::string                m_minor_mode;
         core::stringw              m_stk_version;
         core::stringw              m_user_name;
+        core::stringw              m_info;
         std::vector<std::string>   m_kart_list;
         std::vector<core::stringw> m_name_list;
         std::vector<float>         m_kart_color; //no sorting for this
@@ -119,6 +120,8 @@ private:
 
     std::vector<ReplayData>  m_replay_file_list;
 
+    bool                     m_loaded_all_replays;
+
     /** All ghost karts. */
     std::vector<std::shared_ptr<GhostKart> > m_ghost_karts;
 
@@ -145,7 +148,7 @@ public:
 
     // ------------------------------------------------------------------------
     void               setSecondReplayFile(unsigned int n, bool second_replay_enabled)
-                           { m_second_replay_file = n; 
+                           { m_second_replay_file = n;
                              m_second_replay_enabled = second_replay_enabled;}
 
     // ------------------------------------------------------------------------
@@ -166,6 +169,8 @@ public:
     // ------------------------------------------------------------------------
     const unsigned int getNumReplayFile() const
                            { return (unsigned int)m_replay_file_list.size(); }
+    // ------------------------------------------------------------------------
+    const bool hasLoadedAllReplays() const { return m_loaded_all_replays; }
     // ------------------------------------------------------------------------
     std::shared_ptr<GhostKart> getGhostKart(int n) { return m_ghost_karts[n]; }
     // ------------------------------------------------------------------------

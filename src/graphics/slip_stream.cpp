@@ -644,6 +644,8 @@ void SlipStream::updateBonusTexture()
     if (!CVS->isGLSL())
     {
         float a = m_bonus_time * 255.0f;
+        if (a < 0.0f)
+            a = 0.0f;
         if (a > 255.0f)
             a = 255.0f;
         m_bonus_node->getMaterial(0).getRenderInfo()->getVertexColor()
@@ -735,9 +737,9 @@ void SlipStream::updateQuad()
     float vec_length = moving_xyz.x()*moving_xyz.x()
                      + moving_xyz.y()*moving_xyz.y()
                      + moving_xyz.z()*moving_xyz.z();
-	if (vec_length != 0)
+    if (vec_length != 0)
     {
-    	vec_length = core::reciprocal_squareroot(vec_length);
+        vec_length = core::reciprocal_squareroot(vec_length);
         float x,y,z;
         x = moving_xyz.x() * vec_length;
         y = moving_xyz.y() * vec_length;
@@ -904,7 +906,7 @@ void SlipStream::update(int ticks)
         if(UserConfigParams::m_slipstream_debug)
         {
             setDebugColor(video::SColor(255, 0, 0, 0),false);
-            setDebugColor(video::SColor(255, 0, 0, 0),true);            
+            setDebugColor(video::SColor(255, 0, 0, 0),true);
         }
         return;
     }

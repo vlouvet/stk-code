@@ -31,8 +31,13 @@
 #include "karts/kart.hpp"
 #include "karts/kart_properties.hpp"
 #include "karts/skidding.hpp"
-#include "network/rewind_manager.hpp"
 #include "tracks/track.hpp"
+#include <string>
+#include <vector>
+
+std::vector<Vec3> CameraNormal::m_tv_cameras;
+float CameraNormal::m_tv_min_delta2 = 9.0f;  // distance min to change camera
+float CameraNormal::m_tv_cooldown_default = 0.4f;  // time to change camera
 
 // ============================================================================
 /** Constructor for the normal camera. This is the only camera constructor
@@ -43,9 +48,9 @@
  *  \param camera_index Index of this camera.
  *  \param Kart Pointer to the kart for which this camera is used.
  */
-CameraNormal::CameraNormal(Camera::CameraType type,  int camera_index, 
-                           AbstractKart* kart) 
-            : Camera(type, camera_index, kart), m_camera_offset(0, 0, -15.0f)
+CameraNormal::CameraNormal(Camera::CameraType type,  int camera_index,
+                           AbstractKart* kart)
+            : Camera(type, camera_index, kart), m_camera_offset(0., 0., 0.)
 {
     m_distance = kart ? UserConfigParams::m_camera_distance : 1000.0f;
     m_ambient_light = Track::getCurrentTrack()->getDefaultAmbientColor();
@@ -55,37 +60,36 @@ CameraNormal::CameraNormal(Camera::CameraType type,  int camera_index,
     //       Either global or per user (for instance, some users may not like
     //       the extra camera rotation so they could set m_rotation_range to
     //       zero to disable it for themselves).
+    m_tv_current_index = -1;
+    m_tv_switch_cooldown = 0.0f;
+    m_tv_min_delta2 = 9.0f;
+    m_tv_cooldown_default = 0.4f;
     m_position_speed = 8.0f;
     m_target_speed   = 10.0f;
     m_rotation_range = 0.4f;
     m_rotation_range = 0.0f;
     m_kart_position = btVector3(0, 0, 0);
     m_kart_rotation = btQuaternion(0, 0, 0, 1);
+    m_last_smooth_mode = Mode::CM_NORMAL;
     reset();
     m_camera->setNearValue(1.0f);
 
-    if (kart)
-    {
-        btTransform btt = kart->getSmoothedTrans();
-        m_kart_position = btt.getOrigin();
-        m_kart_rotation = btt.getRotation();
-    }
+    restart();
 }   // Camera
 
 //-----------------------------------------------------------------------------
 /** Moves the camera smoothly from the current camera position (and target)
  *  to the new position and target.
- *  \param dt Delta time, 
+ *  \param dt Delta time,
+ *  \param smooth Updates the camera if true, only calculate smooth state parameter if false
  *  \param if false, the camera instantly moves to the endpoint, or else it smoothly moves
  */
 void CameraNormal::moveCamera(float dt, bool smooth, float cam_angle, float distance)
 {
     if(!m_kart) return;
 
-    if (RewindManager::get()->isRewinding()) return;
-
     Kart *kart = dynamic_cast<Kart*>(m_kart);
-    if (kart->isFlying())
+    if (smooth && kart->isFlying())
     {
         Vec3 vec3 = m_kart->getSmoothedXYZ() + Vec3(sinf(m_kart->getHeading()) * -4.0f,
             0.5f,
@@ -105,51 +109,30 @@ void CameraNormal::moveCamera(float dt, bool smooth, float cam_angle, float dist
     float skid_factor = ks->getVisualSkidRotation();
 
     float skid_angle = asinf(skid_factor);
-
-    // Adjust the distance of the camera to the kart with speed
-    // Note that distance is negative (< 0)
     float ratio = current_speed / max_speed_without_zipper;
+
     ratio = ratio > -0.12f ? ratio : -0.12f;
-    float speed_factor = ((distance - 2.0f) - 1.0f * ratio) / (distance - 2.0f);
-    float camera_distance = distance * speed_factor;
 
-    // Adjust the camera angle
+    // distance of camera from kart in x and z plane
+    float camera_distance = -2.8f - 5.6f * ratio;
+    camera_distance *= sqrtf(UserConfigParams::m_camera_forward_smooth_position);
+    float min_distance = (distance * 2.0f);
+    if (distance > 0) camera_distance += distance + 1; // note that distance < 0
+    if (camera_distance > min_distance) camera_distance = min_distance; // don't get too close to the kart
+
     float tan_up = 0;
-    if (cam_angle > 0) tan_up = tanf(cam_angle) * std::max(distance - 1.0f, distance * (1.0f + 0.25f * ratio));
-    // Avoid a camera razing the ground (it generates a lot of terrain clipping with the current near value of 1.0)
-    if (tan_up > -0.5f)
-        tan_up = -0.5f;
+    if (cam_angle > 0) tan_up = tanf(cam_angle) * distance;
 
-    // Defines how far the camera should be from the player's kart.
-    float squared_x = distance * sinf(skid_angle / 2);
-    squared_x *= squared_x;
-    float squared_y = tan_up;
-    squared_y *= squared_y;
-    float squared_z = distance * cosf(skid_angle / 2);
-    squared_z *= squared_z;
-    float length = sqrt(squared_x + squared_y + squared_z);
-    float camera_distance_factor = -camera_distance * camera_distance / length;
+    // Defines how far camera should be from player kart.
+    Vec3 wanted_camera_offset(camera_distance * sinf(skid_angle / 2),
+        (0.85f + ratio / 2.5f) - tan_up,
+        camera_distance * cosf(skid_angle / 2));
 
-    Vec3 wanted_camera_offset(camera_distance_factor * sinf(skid_angle / 2),
-        -tan_up,
-        camera_distance_factor * cosf(skid_angle / 2));
+    float delta = dt / std::max(dt, float(UserConfigParams::m_camera_forward_smooth_position));
+    float delta2 = dt / std::max(dt, float(UserConfigParams::m_camera_forward_smooth_rotation));
 
-    float delta = 1;
-    float delta2 = 1;
-    if (smooth)
-    {
-        delta = (dt*5.0f);
-        if (delta < 0.0f)
-            delta = 0.0f;
-        else if (delta > 1.0f)
-            delta = 1.0f;
-
-        delta2 = dt * 8.0f;
-        if (delta2 < 0)
-            delta2 = 0;
-        else if (delta2 > 1)
-            delta2 = 1;
-    }
+    delta = irr::core::clamp(delta, 0.0f, 1.0f);
+    delta2 = irr::core::clamp(delta2, 0.0f, 1.0f);
 
     btTransform btt = m_kart->getSmoothedTrans();
     m_kart_position = btt.getOrigin();
@@ -178,10 +161,12 @@ void CameraNormal::moveCamera(float dt, bool smooth, float cam_angle, float dist
     //    kart_camera_position_with_offset.z(), current_target.x(), current_target.y(),
     //    current_target.z());
 
-    if(getMode()!=CM_FALLING)
-        m_camera->setPosition(current_position);
-    m_camera->setTarget(current_target.toIrrVector());//set new target
-
+    if (smooth)
+    {
+        if(getMode()!=CM_FALLING)
+            m_camera->setPosition(current_position);
+        m_camera->setTarget(current_target.toIrrVector());//set new target
+    }
     assert(!std::isnan(m_camera->getPosition().X));
     assert(!std::isnan(m_camera->getPosition().Y));
     assert(!std::isnan(m_camera->getPosition().Z));
@@ -189,11 +174,22 @@ void CameraNormal::moveCamera(float dt, bool smooth, float cam_angle, float dist
 }   // moveCamera
 
 //-----------------------------------------------------------------------------
-void CameraNormal::snapToPosition()
+void CameraNormal::restart()
 {
-    float angle = UserConfigParams::m_camera_forward_up_angle * DEGREE_TO_RAD;
-    moveCamera(1.0f, false, angle, -m_distance);
-}   // snapToPosition
+    if (m_kart)
+    {
+        btTransform btt = m_kart->getSmoothedTrans();
+        const Vec3& up = btt.getBasis().getColumn(1);
+
+        m_camera->setUpVector(up.toIrrVector());
+        m_kart_position = btt.getOrigin();
+        m_kart_rotation = btt.getRotation();
+
+        float offset_z = -33.f * sqrtf(UserConfigParams::m_camera_forward_smooth_position);
+        float offset_y = -offset_z * tanf(UserConfigParams::m_camera_forward_up_angle * DEGREE_TO_RAD);
+        m_camera_offset = irr::core::vector3df(0., offset_y + 1.0f, offset_z);
+    }
+}   // restart
 
 //-----------------------------------------------------------------------------
 /** Determine the camera settings for the current frame.
@@ -203,27 +199,12 @@ void CameraNormal::snapToPosition()
  *  \param distance Distance from kart.
  *  \param cam_roll_angle Roll camera for gyroscope steering effect.
  */
-void CameraNormal::getCameraSettings(float *above_kart, float *cam_angle,
+void CameraNormal::getCameraSettings(Mode mode,
+                                     float *above_kart, float *cam_angle,
                                      float *sideway, float *distance,
                                      bool *smoothing, float *cam_roll_angle)
 {
-    // Update the standard camera for users updating to 1.5
-    if(!UserConfigParams::m_camera_updated_one_five)
-    {
-        UserConfigParams::m_standard_camera_fov.revertToDefaults();
-        UserConfigParams::m_standard_camera_distance.revertToDefaults();
-        UserConfigParams::m_standard_camera_forward_up_angle.revertToDefaults();
-        if (UserConfigParams::m_camera_present == 1) // Currently using a standard camera 
-        {
-            UserConfigParams::m_camera_fov.revertToDefaults();
-            UserConfigParams::m_camera_distance.revertToDefaults();
-            UserConfigParams::m_camera_forward_up_angle.revertToDefaults();
-            m_distance = UserConfigParams::m_camera_distance;
-        }
-        UserConfigParams::m_camera_updated_one_five = true;
-    }
-
-    switch(getMode())
+    switch(mode)
     {
     case CM_NORMAL:
     case CM_FALLING:
@@ -237,7 +218,8 @@ void CameraNormal::getCameraSettings(float *above_kart, float *cam_angle,
             // quadratically to dampen small variations (but keep sign)
             float dampened_steer = fabsf(steering) * steering;
             *sideway             = -m_rotation_range*dampened_steer*0.5f;
-            *smoothing           = UserConfigParams::m_camera_forward_smoothing;
+            *smoothing           = UserConfigParams::m_camera_forward_smooth_position != 0.
+                                || UserConfigParams::m_camera_forward_smooth_rotation != 0.;
             *cam_roll_angle      = 0.0f;
             if (UserConfigParams::m_multitouch_controls == MULTITOUCH_CONTROLS_GYROSCOPE)
             {
@@ -317,6 +299,16 @@ void CameraNormal::getCameraSettings(float *above_kart, float *cam_angle,
             *cam_roll_angle = 0.0f;
             break;
         }
+    case CM_SPECTATOR_TV:
+        {
+            *above_kart = 0.0f;
+            *cam_angle  = UserConfigParams::m_spectator_camera_angle*DEGREE_TO_RAD;
+            *sideway    = 0;
+            *distance   = -UserConfigParams::m_spectator_camera_distance;
+            *smoothing  = true;
+            *cam_roll_angle = 0.0f;
+            break;
+        }
     case CM_SIMPLE_REPLAY:
         // TODO: Implement
         break;
@@ -335,16 +327,18 @@ void CameraNormal::update(float dt)
 
     m_camera->setNearValue(1.0f);
 
+    float above_kart, cam_angle, side_way, distance, cam_roll_angle;
+    bool  smoothing;
+
+    getCameraSettings(getMode(), &above_kart, &cam_angle, &side_way,
+                                 &distance, &smoothing, &cam_roll_angle);
+
     // If an explosion is happening, stop moving the camera,
     // but keep it target on the kart.
     ExplosionAnimation* ea =
         dynamic_cast<ExplosionAnimation*>(m_kart->getKartAnimation());
     if (ea && !ea->hasResetAlready())
     {
-        float above_kart, cam_angle, side_way, distance, cam_roll_angle;
-        bool  smoothing;
-
-        getCameraSettings(&above_kart, &cam_angle, &side_way, &distance, &smoothing, &cam_roll_angle);
         // The camera target needs to be 'smooth moved', otherwise
         // there will be a noticable jump in the first frame
 
@@ -358,13 +352,22 @@ void CameraNormal::update(float dt)
     }
     else // no kart animation
     {
-        float above_kart, cam_angle, side_way, distance, cam_roll_angle;
-        bool  smoothing;
-        getCameraSettings(&above_kart, &cam_angle, &side_way, &distance, &smoothing, &cam_roll_angle);
+        if (smoothing)
+        {
+            m_last_smooth_mode = getMode();
+            moveCamera(dt, true, cam_angle, distance);
+        }
+
         positionCamera(dt, above_kart, cam_angle, side_way, distance, smoothing, cam_roll_angle);
     }
-}   // update
 
+    if (!smoothing)
+    {
+        getCameraSettings(m_last_smooth_mode, &above_kart, &cam_angle, &side_way,
+                                              &distance, &smoothing, &cam_roll_angle);
+        moveCamera(dt, false, cam_angle, distance);
+    }
+}   // update
 
 // ----------------------------------------------------------------------------
 /** Actually sets the camera based on the given parameter.
@@ -382,6 +385,10 @@ void CameraNormal::positionCamera(float dt, float above_kart, float cam_angle,
     Vec3 wanted_target = m_kart->getSmoothedTrans()(Vec3(0, above_kart, 0));
 
     float tan_up = tanf(cam_angle);
+
+    // Protection: Ensure TV camera variables are in valid state
+    if (m_tv_current_index < 0) m_tv_current_index = 0;
+    if (m_tv_switch_cooldown < 0) m_tv_switch_cooldown = 0.0f;
 
     Camera::Mode mode = getMode();
     if (UserConfigParams::m_reverse_look_use_soccer_cam && getMode() == CM_REVERSE) mode=CM_SPECTATOR_SOCCER;
@@ -411,6 +418,55 @@ void CameraNormal::positionCamera(float dt, float above_kart, float cam_angle,
             m_camera->setTarget(wanted_target.toIrrVector());
             return;
         }
+    case CM_SPECTATOR_TV:
+        {
+            SoccerWorld *soccer_world = dynamic_cast<SoccerWorld*> (World::getWorld());
+            if (soccer_world && !m_tv_cameras.empty())
+            {
+                Vec3 ball_pos = soccer_world->getBallPosition();
+                // decrement cooldown
+                if (m_tv_switch_cooldown > 0.0f)
+                    m_tv_switch_cooldown = std::max(0.0f, m_tv_switch_cooldown - dt);
+
+                // choose the TV camera closest to the ball
+                unsigned best = 0;
+                float best_d2 = (m_tv_cameras[0] - ball_pos).length2();
+                for (unsigned i = 1; i < m_tv_cameras.size(); i++)
+                {
+                    float d2 = (m_tv_cameras[i] - ball_pos).length2();
+                    if (d2 < best_d2)
+                    {
+                        best = i;
+                        best_d2 = d2;
+                    }
+                }
+
+                // initialize current index on first use
+                if (m_tv_current_index < 0 || (unsigned)m_tv_current_index >= m_tv_cameras.size())
+                {
+                    m_tv_current_index = (int)best;
+                    m_tv_switch_cooldown = m_tv_cooldown_default;
+                }
+                else
+                {
+                    float current_d2 = (m_tv_cameras[(unsigned)m_tv_current_index] - ball_pos).length2();
+                    // Switch only if cooldown elapsed and best is sufficiently better than current
+                    if (m_tv_switch_cooldown <= 0.0f && best != (unsigned)m_tv_current_index
+                        && best_d2 + m_tv_min_delta2 < current_d2)
+                    {
+                        m_tv_current_index = (int)best;
+                        m_tv_switch_cooldown = m_tv_cooldown_default;
+                    }
+                }
+
+                wanted_position = m_tv_cameras[(unsigned)m_tv_current_index];
+                wanted_target = ball_pos;
+                m_camera->setPosition(wanted_position.toIrrVector());
+                m_camera->setTarget(wanted_target.toIrrVector());
+                return;
+            }
+            break;
+        }
     default: break;
     }
 
@@ -427,12 +483,8 @@ void CameraNormal::positionCamera(float dt, float above_kart, float cam_angle,
         t.setBasis(t.getBasis() * btMatrix3x3(q));
     }
     wanted_position = t(relative_position);
-
-    if (smoothing)
-    {
-        moveCamera(dt, true, cam_angle, distance);
-    }
-    else
+    
+    if (!smoothing)
     {
         if (getMode()!=CM_FALLING)
             m_camera->setPosition(wanted_position.toIrrVector());
@@ -470,3 +522,68 @@ void CameraNormal::positionCamera(float dt, float above_kart, float cam_angle,
         m_camera->setUpVector(((Vec3)m.getColumn(1)).toIrrVector());
     }
 }   // positionCamera
+
+//-----------------------------------------------------------------------------
+void CameraNormal::readTVCameras(const XMLNode &root)
+{
+    m_tv_cameras.clear();
+    // Optional configuration on root node
+    float min_delta = -1.0f;
+    float cooldown = -1.0f;
+    root.get("min-delta", &min_delta);     // units; we'll square it for comparisons
+    root.get("cooldown", &cooldown);       // seconds
+    if (min_delta > 0.0f)
+        m_tv_min_delta2 = min_delta * min_delta;
+    if (cooldown > 0.0f)
+        m_tv_cooldown_default = cooldown;
+
+    for (unsigned int i = 0; i < root.getNumNodes(); i++)
+    {
+        const XMLNode* n = root.getNode(i);
+        if (!n) continue;
+        bool is_tv_camera_node = false;
+        if (n->getName() == std::string("tv-camera"))
+        {
+            is_tv_camera_node = true; // legacy child name
+        }
+        else if (n->getName() == std::string("camera"))
+        {
+            std::string ctype;
+            n->get("type", &ctype);
+            if (ctype == "tv-camera")
+                is_tv_camera_node = true;
+        }
+        if (is_tv_camera_node)
+        {
+            float child_min_delta = -1.0f;
+            float child_cooldown = -1.0f;
+            n->get("min-delta", &child_min_delta);
+            n->get("cooldown", &child_cooldown);
+            if (child_min_delta > 0.0f)
+                m_tv_min_delta2 = child_min_delta * child_min_delta;
+            if (child_cooldown > 0.0f)
+                m_tv_cooldown_default = child_cooldown;
+
+            Vec3 p(0,0,0);
+            n->get("xyz", &p);
+            m_tv_cameras.push_back(p);
+        }
+    }
+} // readTVCameras
+
+void CameraNormal::clearTVCameras()
+{
+    m_tv_cameras.clear();  // Nettoie les caméras statiques
+    
+    // Remet à zéro l'état de TOUTES les caméras existantes
+    for(unsigned int i = 0; i < Camera::getNumCameras(); i++)
+    {
+        Camera* camera = Camera::getCamera(i);
+        if(camera && camera->getType() == Camera::CM_TYPE_NORMAL)
+        {
+            CameraNormal* normal_cam = static_cast<CameraNormal*>(camera);
+            normal_cam->m_tv_current_index = -1;
+            normal_cam->m_tv_switch_cooldown = 0.0f;
+        }
+    }
+} // clearTVCameras

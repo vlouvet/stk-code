@@ -154,7 +154,7 @@ public:
     // ------------------------------------------------------------------------
     unsigned int getHeight() const                         { return m_height; }
     // ------------------------------------------------------------------------
-    static void blit(const FrameBuffer &src, const FrameBuffer &dst, 
+    static void blit(const FrameBuffer &src, const FrameBuffer &dst,
                      GLbitfield mask = GL_COLOR_BUFFER_BIT,
                      GLenum filter = GL_NEAREST)
     {

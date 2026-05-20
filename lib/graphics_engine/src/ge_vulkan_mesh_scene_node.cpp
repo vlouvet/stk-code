@@ -1,3 +1,5 @@
+#ifdef _IRR_COMPILE_WITH_VULKAN_
+
 #include "ge_vulkan_mesh_scene_node.hpp"
 
 #include "ge_spm.hpp"
@@ -41,3 +43,5 @@ void GEVulkanMeshSceneNode::OnRegisterSceneNode()
 }   // OnRegisterSceneNode
 
 }
+
+#endif

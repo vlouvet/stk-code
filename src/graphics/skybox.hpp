@@ -44,7 +44,7 @@ private:
     GLuint m_cube_map;
     
     /** The specular probe texture id */
-    GLuint m_specular_probe;   
+    GLuint m_specular_probe;
     
 
     void generateCubeMapFromTextures ();
@@ -58,7 +58,7 @@ public:
 
     inline GLuint getSpecularProbe()      const     {return m_specular_probe; }
 
-
+    inline GLuint getCubeMap() const                     { return m_cube_map; }
 };
 
 #endif //HEADER_SKYBOX_HPP

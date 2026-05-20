@@ -15,11 +15,11 @@
 //  along with this program; if not, write to the Free Software
 //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+#ifndef SERVER_ONLY // No GUI files in server builds
+
 // Manages includes common to all options screens
 #include "states_screens/options/options_common.hpp"
 
-#include "graphics/camera/camera.hpp"
-#include "graphics/camera/camera_normal.hpp"
 #include "challenges/story_mode_timer.hpp"
 #include "config/player_manager.hpp"
 #include "font/font_manager.hpp"
@@ -27,7 +27,6 @@
 #include "items/attachment_manager.hpp"
 #include "items/powerup_manager.hpp"
 #include "modes/world.hpp"
-#include "states_screens/dialogs/custom_camera_settings.hpp"
 #include "states_screens/dialogs/message_dialog.hpp"
 #include "states_screens/main_menu_screen.hpp"
 
@@ -63,17 +62,17 @@ void OptionsScreenUI::loadedFromFile()
 
     minimap_options->m_properties[PROP_WRAP_AROUND] = "true";
     minimap_options->clearLabels();
-    //I18N: In the UI options, minimap position in the race UI 
+    //I18N: In the UI options, minimap position in the race UI
     minimap_options->addLabel( core::stringw(_("In the bottom-left")));
-    //I18N: In the UI options, minimap position in the race UI 
+    //I18N: In the UI options, minimap position in the race UI
     minimap_options->addLabel( core::stringw(_("On the right side")));
-    //I18N: In the UI options, minimap position in the race UI 
+    //I18N: In the UI options, minimap position in the race UI
     minimap_options->addLabel( core::stringw(_("Hidden")));
     //I18N: In the UI options, minimap position in the race UI
     minimap_options->addLabel( core::stringw(_("Centered")));
     minimap_options->m_properties[GUIEngine::PROP_MIN_VALUE] = "0";
 
-    bool multitouch_enabled = (UserConfigParams::m_multitouch_active == 1 && 
+    bool multitouch_enabled = (UserConfigParams::m_multitouch_active == 1 &&
                                irr_driver->getDevice()->supportsTouchDevice()) ||
                                UserConfigParams::m_multitouch_active > 1;
 
@@ -89,15 +88,15 @@ void OptionsScreenUI::loadedFromFile()
     font_size->clearLabels();
     font_size->addLabel(L"Extremely small");
     //I18N: In the UI options, Very small font size
-    font_size->addLabel(_("Very small"));
+    font_size->addLabel(_C("Font size", "Very small"));
     //I18N: In the UI options, Small font size
-    font_size->addLabel(_("Small"));
+    font_size->addLabel(_C("Font size", "Small"));
     //I18N: In the UI options, Medium font size
-    font_size->addLabel(_("Medium"));
+    font_size->addLabel(_C("Font size", "Medium"));
     //I18N: In the UI options, Large font size
-    font_size->addLabel(_("Large"));
+    font_size->addLabel(_C("Font size", "Large"));
     //I18N: In the UI options, Very large font size
-    font_size->addLabel(_("Very large"));
+    font_size->addLabel(_C("Font size", "Very large"));
     font_size->addLabel(L"Extremely large");
 
     if (UserConfigParams::m_artist_debug_mode)
@@ -111,22 +110,6 @@ void OptionsScreenUI::loadedFromFile()
         font_size->m_properties[GUIEngine::PROP_MIN_VALUE] = "1";
         font_size->m_properties[GUIEngine::PROP_MAX_VALUE] = "5";
     }
-
-    // Setup camera spinner
-    GUIEngine::SpinnerWidget* camera_preset = getWidget<GUIEngine::SpinnerWidget>("camera_preset");
-    assert( camera_preset != NULL );
-
-    camera_preset->m_properties[PROP_WRAP_AROUND] = "true";
-    camera_preset->clearLabels();
-    //I18N: In the UI options, Camera setting: Custom
-    camera_preset->addLabel( core::stringw(_("Custom")));
-    //I18N: In the UI options, Camera setting: Standard
-    camera_preset->addLabel( core::stringw(_("Standard")));
-    //I18N: In the UI options, Camera setting: Drone chase
-    camera_preset->addLabel( core::stringw(_("Drone chase")));
-    camera_preset->m_properties[GUIEngine::PROP_MIN_VALUE] = "0";
-    camera_preset->m_properties[GUIEngine::PROP_MAX_VALUE] = "2";
-    updateCameraPresetSpinner();
 
     font_size->setValueUpdatedCallback([this](SpinnerWidget* spinner)
     {
@@ -192,7 +175,10 @@ void OptionsScreenUI::init()
     bool currSkinFound = false;
     const std::string& user_skin = UserConfigParams::m_skin_file;
     m_base_skin_selector ->setActive(!in_game);
+    OptionsCommon::updatePauseTooltip(m_base_skin_selector, in_game);
+
     m_variant_skin_selector->setActive(!in_game);
+    OptionsCommon::updatePauseTooltip(m_variant_skin_selector, in_game);
 
     for (unsigned int i = 0; i < m_skins.size(); i++)
     {
@@ -204,7 +190,7 @@ void OptionsScreenUI::init()
             m_variant_skin_selector->setValue(getVariantID(m_skins[i]));
             currSkinFound = true;
             break;
-        } 
+        }
     }
     if (!currSkinFound)
     {
@@ -221,7 +207,7 @@ void OptionsScreenUI::init()
     GUIEngine::SpinnerWidget* minimap_options = getWidget<GUIEngine::SpinnerWidget>("minimap");
     assert( minimap_options != NULL );
 
-    bool multitouch_enabled = (UserConfigParams::m_multitouch_active == 1 && 
+    bool multitouch_enabled = (UserConfigParams::m_multitouch_active == 1 &&
                                irr_driver->getDevice()->supportsTouchDevice()) ||
                                UserConfigParams::m_multitouch_active > 1;
 
@@ -246,6 +232,7 @@ void OptionsScreenUI::init()
     font_size->setValue(size_int);
     UserConfigParams::m_font_size = font_size->getValue();
     font_size->setActive(!in_game);
+    OptionsCommon::updatePauseTooltip(font_size, in_game);
 
     CheckBoxWidget* karts_powerup_gui = getWidget<CheckBoxWidget>("karts_powerup_gui");
     assert(karts_powerup_gui != NULL);
@@ -288,13 +275,6 @@ void OptionsScreenUI::init()
         }
     }
     speedrun_timer->setState( UserConfigParams::m_speedrun_mode );
-
-    // --- select the right camera in the spinner
-    GUIEngine::SpinnerWidget* camera_preset = getWidget<GUIEngine::SpinnerWidget>("camera_preset");
-    assert( camera_preset != NULL );
-
-    camera_preset->setValue(UserConfigParams::m_camera_present); // use the saved camera
-    updateCameraPresetSpinner();
 }   // init
 
 // -----------------------------------------------------------------------------
@@ -328,6 +308,10 @@ void OptionsScreenUI::loadSkins(const std::set<std::string>& files, bool addon)
                 delete root;
                 return;
             }
+
+            // Localize the skin names
+            skin.m_base_theme_name = _(skin.m_base_theme_name.c_str());
+            skin.m_variant_name    = _(skin.m_variant_name.c_str());
 
             skin.m_folder_name = folder_name;
             m_skins.push_back(skin);
@@ -422,30 +406,8 @@ std::string OptionsScreenUI::getCurrentSpinnerSkin()
 } // getCurrentSpinnerSkin
 
 // -----------------------------------------------------------------------------
-void OptionsScreenUI::updateCamera()
-{
-    bool in_game = StateManager::get()->getGameState() == GUIEngine::INGAME_MENU;
-    if (in_game)
-    {
-        (Camera::getActiveCamera()->getCameraSceneNode())->setFOV(DEGREE_TO_RAD * UserConfigParams::m_camera_fov);
-        CameraNormal *camera = dynamic_cast<CameraNormal*>(Camera::getActiveCamera());
-        if (camera)
-        {
-            camera->setDistanceToKart(UserConfigParams::m_camera_distance);
-        }
-    }
-} // updateCamera
-
-// -----------------------------------------------------------------------------
-void OptionsScreenUI::updateCameraPresetSpinner()
-{
-    updateCamera();
-} // updateCameraPresetSpinner
-
-// -----------------------------------------------------------------------------
 void OptionsScreenUI::eventCallback(Widget* widget, const std::string& name, const int playerID)
 {
-#ifndef SERVER_ONLY
     if (name == "options_choice")
     {
         std::string selection = ((RibbonWidget*)widget)->getSelectionIDString(PLAYER_ID_GAME_MASTER);
@@ -546,49 +508,6 @@ void OptionsScreenUI::eventCallback(Widget* widget, const std::string& name, con
         }
         UserConfigParams::m_speedrun_mode = speedrun_timer->getState();
     }
-    else if (name == "camera_preset")
-    {
-        GUIEngine::SpinnerWidget* camera_preset = getWidget<GUIEngine::SpinnerWidget>("camera_preset");
-        assert( camera_preset != NULL );
-        unsigned int i = camera_preset->getValue();
-        UserConfigParams::m_camera_present = i;
-        if (i == 1) //Standard
-        {
-            UserConfigParams::m_camera_fov = UserConfigParams::m_standard_camera_fov;
-            UserConfigParams::m_camera_distance = UserConfigParams::m_standard_camera_distance;
-            UserConfigParams::m_camera_forward_up_angle = UserConfigParams::m_standard_camera_forward_up_angle;
-            UserConfigParams::m_camera_forward_smoothing = UserConfigParams::m_standard_camera_forward_smoothing;
-            UserConfigParams::m_camera_backward_distance = UserConfigParams::m_standard_camera_backward_distance;
-            UserConfigParams::m_camera_backward_up_angle = UserConfigParams::m_standard_camera_backward_up_angle;
-            UserConfigParams::m_reverse_look_use_soccer_cam = UserConfigParams::m_standard_reverse_look_use_soccer_cam;
-        }
-        else if (i == 2) //Drone chase
-        {
-            UserConfigParams::m_camera_fov = UserConfigParams::m_drone_camera_fov;
-            UserConfigParams::m_camera_distance = UserConfigParams::m_drone_camera_distance;
-            UserConfigParams::m_camera_forward_up_angle = UserConfigParams::m_drone_camera_forward_up_angle;
-            UserConfigParams::m_camera_forward_smoothing = UserConfigParams::m_drone_camera_forward_smoothing;
-            UserConfigParams::m_camera_backward_distance = UserConfigParams::m_drone_camera_backward_distance;
-            UserConfigParams::m_camera_backward_up_angle = UserConfigParams::m_drone_camera_backward_up_angle;
-            UserConfigParams::m_reverse_look_use_soccer_cam = UserConfigParams::m_drone_reverse_look_use_soccer_cam;
-        }
-        else //Custom
-        {
-            UserConfigParams::m_camera_fov = UserConfigParams::m_saved_camera_fov;
-            UserConfigParams::m_camera_distance = UserConfigParams::m_saved_camera_distance;
-            UserConfigParams::m_camera_forward_up_angle = UserConfigParams::m_saved_camera_forward_up_angle;
-            UserConfigParams::m_camera_forward_smoothing = UserConfigParams::m_saved_camera_forward_smoothing;
-            UserConfigParams::m_camera_backward_distance = UserConfigParams::m_saved_camera_backward_distance;
-            UserConfigParams::m_camera_backward_up_angle = UserConfigParams::m_saved_camera_backward_up_angle;
-            UserConfigParams::m_reverse_look_use_soccer_cam = UserConfigParams::m_saved_reverse_look_use_soccer_cam;
-        }
-        updateCamera();
-    }
-    else if(name == "custom_camera")
-    {
-        new CustomCameraSettingsDialog(0.8f, 0.95f);
-    }
-#endif
 }   // eventCallback
 
 // -----------------------------------------------------------------------------
@@ -685,4 +604,4 @@ void OptionsScreenUI::unloaded()
     m_inited = false;
 }   // unloaded
 
-// -----------------------------------------------------------------------------
+#endif // ifndef SERVER_ONLY

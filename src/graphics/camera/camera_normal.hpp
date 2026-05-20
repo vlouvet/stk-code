@@ -51,9 +51,12 @@ private:
 
     Vec3            m_camera_offset;
 
+    Mode            m_last_smooth_mode;
+
     void moveCamera(float dt, bool smooth, float cam_angle, float distance);
-    void handleEndCamera(float dt);
-    void getCameraSettings(float *above_kart, float *cam_angle,
+
+    void getCameraSettings(Mode mode,
+                           float *above_kart, float *cam_angle,
                            float *side_way, float *distance,
                            bool *smoothing, float *cam_roll_angle);
     
@@ -64,6 +67,15 @@ private:
     btVector3 m_kart_position;
     btQuaternion m_kart_rotation;
 
+    // TV spectator cameras defined by track designer (soccer). Always follow ball.
+    static std::vector<Vec3> m_tv_cameras;
+
+    // TV camera selection smoothing
+    int   m_tv_current_index = -1;
+    float m_tv_switch_cooldown = 0.0f; // seconds remaining before next switch
+    static float m_tv_min_delta2;       // required improvement (squared distance) to switch
+    static float m_tv_cooldown_default; // default cooldown after a switch (seconds)
+
     // Give a few classes access to the constructor (mostly for inheritance)
     friend class Camera;
     friend class CameraDebug;
@@ -73,8 +85,8 @@ private:
     virtual ~CameraNormal() {}
 public:
 
-    void snapToPosition();
-     // ------------------------------------------------------------------------
+    void restart();
+    // ------------------------------------------------------------------------
     bool isDebug() { return false; }
     // ------------------------------------------------------------------------
     bool isFPS() { return false; }
@@ -90,6 +102,15 @@ public:
     // ------------------------------------------------------------------------
     /** Returns the current ambient light. */
     const video::SColor &getAmbientLight() const {return m_ambient_light; }
+    // ------------------------------------------------------------------------
+    // Load TV cameras from XML section <tv-cameras> in scene.xml
+    static void readTVCameras(const XMLNode &root);
+    // ------------------------------------------------------------------------
+    // clean all TV camera
+    static void clearTVCameras();
+    // ------------------------------------------------------------------------
+    // Returns true if at least one TV camera was loaded
+    static bool hasTVCameras() { return !m_tv_cameras.empty(); }
 
 };   // class CameraNormal
 

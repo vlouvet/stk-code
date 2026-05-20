@@ -99,7 +99,7 @@ void Screen::init()
 
 // -----------------------------------------------------------------------------
 /** Displays this screen bu pushing it onto the stack of screen
- *  in the state manager. 
+ *  in the state manager.
  */
 void Screen::push()
 {
@@ -152,12 +152,13 @@ void Screen::loadFromFile()
 void Screen::unload()
 {
     assert(m_magic_number == 0xCAFEC001);
+#ifndef NDEBUG
     Widget* w;
     for_in (w, m_widgets)
     {
         assert(w->m_magic_number == 0xCAFEC001);
     }
-
+#endif
     m_loaded = false;
     m_widgets.clearAndDeleteAll();
 

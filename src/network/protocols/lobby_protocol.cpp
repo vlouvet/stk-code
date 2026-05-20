@@ -23,6 +23,7 @@
 #include "input/device_manager.hpp"
 #include "guiengine/engine.hpp"
 #include "guiengine/message_queue.hpp"
+#include "guiengine/modaldialog.hpp"
 #include "guiengine/screen_keyboard.hpp"
 #include <ge_render_info.hpp>
 #include "karts/abstract_kart.hpp"
@@ -139,7 +140,7 @@ void LobbyProtocol::configRemoteKart(
 
         // Adjust the local player id so that local players have the numbers
         // 0 to num-1; and all other karts start with num. This way the local
-        // players get the first ActivePlayers assigned (which have the 
+        // players get the first ActivePlayers assigned (which have the
         // corresponding device associated with it).
         RemoteKartInfo rki(local_player_id,
                            profile->getKartName(),
@@ -288,7 +289,9 @@ void LobbyProtocol::exitGameState()
 
     GUIEngine::ModalDialog::dismiss();
     GUIEngine::ScreenKeyboard::dismiss();
+#ifndef SERVER_ONLY
     RaceResultGUI::getInstance()->cleanupGPProgress();
+#endif
     if (create_gp_msg)
     {
         core::stringw msg = _("Network grand prix has been finished.");

@@ -76,6 +76,14 @@ void TipsManager::addTipSet(const XMLNode *input)
             continue; // ignore incorrect node
 
         std::string text;
+        // Special case managed in code to avoid embedding an URL in the translatable string
+        if(node->get("type", &text) && text == "website_info")
+        {
+            m_all_tip_sets[id].push_back(
+                _("You can visit %s for more information about the game.", "https://supertuxkart.net/"));
+            continue;
+        }
+
         if(!node->get("text", &text))
             continue; // missing text, ignore node
 
@@ -87,7 +95,7 @@ void TipsManager::addTipSet(const XMLNode *input)
         Log::error("TipSet",
             "Incorrect tips for the entries of tipset \"%s\".", id.c_str());
     }
-}
+} // addTipSet
 
 // ----------------------------------------------------------------------------
 const irr::core::stringw& TipsManager::getTip(const std::string& id) const
@@ -102,6 +110,18 @@ const irr::core::stringw& TipsManager::getTip(const std::string& id) const
     RandomGenerator randgen;
     unsigned pos = randgen.get(ret->second.size());
     return ret->second.at(pos);
-} // getTipSet
+} // getTip
+
+// ----------------------------------------------------------------------------
+const unsigned int TipsManager::getTipCount(const std::string& id) const
+{
+    auto ret = m_all_tip_sets.find(id);
+    if (ret == m_all_tip_sets.end())
+    {
+        // Should not happen
+        return 0;
+    }
+    return ret->second.size();
+} // getTipCount
 
 #endif

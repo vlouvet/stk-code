@@ -138,7 +138,7 @@ World::World() : WorldStatus()
     m_schedule_exit_race = false;
     m_schedule_tutorial  = false;
     m_is_network_world   = false;
-    m_snap_camera        = false;
+    m_restart_camera        = false;
 
     m_stop_music_when_dialog_open = true;
 
@@ -227,6 +227,13 @@ void World::init()
     main_loop->renderGUI(6998);
     if (gk > 0)
     {
+        unsigned player_count = StateManager::get()->getActivePlayers().size();
+        for (unsigned p = 0; p < player_count; p++)
+        {
+            StateManager::ActivePlayer* pl = StateManager::get()->getActivePlayer(p);
+            if (pl)
+                pl->setKart(NULL);
+        }
         ReplayPlay::get()->load();
         for (unsigned int k = 0; k < gk; k++)
             m_karts.push_back(ReplayPlay::get()->getGhostKart(k));
@@ -402,6 +409,11 @@ void World::reset(bool restart)
     // explosion animation will be created
     ProjectileManager::get()->cleanup();
     resetAllKarts();
+
+    if (restart)
+    {
+        m_restart_camera = true;
+    }
     // Note: track reset must be called after all karts exist, since check
     // objects need to allocate data structures depending on the number
     // of karts.
@@ -784,6 +796,7 @@ void World::terminateRace()
 
     if (!GUIEngine::isNoGraphics())
     {
+#ifndef SERVER_ONLY
         RaceResultGUI* results = RaceResultGUI::getInstance();
         m_race_gui = results;
         if (best_highscore_rank > 0)
@@ -791,6 +804,7 @@ void World::terminateRace()
         else
             results->clearHighscores();
         results->push();
+#endif
     }
 
     WorldStatus::terminateRace();
@@ -895,9 +909,6 @@ void World::resetAllKarts()
         {
             Camera* cam = Camera::getCamera(i);
             cam->setInitialTransform();
-            // Ensure that smoothed cameras start from a correct position
-            if (cam->isNormal())
-                dynamic_cast<CameraNormal*>(cam)->snapToPosition();
         }
     }
 }   // resetAllKarts
@@ -944,8 +955,6 @@ void World::moveKartTo(AbstractKart* kart, const btTransform &transform)
     // This will set the physics transform
     Track::getCurrentTrack()->findGround(kart);
     Track::getCurrentTrack()->getCheckManager()->resetAfterKartMove(kart);
-
-    m_snap_camera = true;
 }   // moveKartTo
 
 // ----------------------------------------------------------------------------
@@ -1027,18 +1036,6 @@ void World::updateWorld(int ticks)
     {
         unpause();
         m_schedule_unpause = false;
-    }
-
-    if (m_snap_camera)
-    {
-        m_snap_camera = false;
-        for(unsigned int i=0; i<Camera::getNumCameras(); i++)
-        {
-            Camera* cam = Camera::getCamera(i);
-            // Ensure that smoothed cameras start from a correct position
-            if (cam->isNormal())
-                dynamic_cast<CameraNormal*>(cam)->snapToPosition();
-        }
     }
 
     // Don't update world if a menu is shown or the race is over.
@@ -1175,6 +1172,16 @@ void World::update(int ticks)
         printf("%i\n",irr_driver->getVideoDriver()->getFPS());
     }
 #endif
+
+    if (m_restart_camera)
+    {
+        m_restart_camera = false;
+        for(unsigned int i=0; i<Camera::getNumCameras(); i++)
+        {
+            Camera* cam = Camera::getCamera(i);
+            dynamic_cast<CameraNormal*>(cam)->restart();
+        }
+    }
 
     PROFILER_PUSH_CPU_MARKER("World::update (sub-updates)", 0x20, 0x7F, 0x00);
     WorldStatus::update(ticks);

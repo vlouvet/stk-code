@@ -54,7 +54,6 @@ namespace irr
                 int m_current_id;
 
                 bool m_word_wrap = false;
-                float m_line_height_scale = 0.0f;
 
                 // A multicolor extension
                 struct ListItemOverrideColor
@@ -167,6 +166,9 @@ namespace irr
             //! set global itemHeight
             virtual void setItemHeight( s32 height );
 
+            /* return item height */
+            int getItemHeight() { return (int) m_item_height; }
+
             //! Sets whether to draw the background
             virtual void setDrawBackground(bool draw);
 
@@ -191,12 +193,12 @@ namespace irr
 
             core::array< ListItem > Items;
             s32 Selected;
-            s32 ItemHeight;
+            s32 m_item_height;
             s32 ItemHeightOverride;
             s32 TotalItemHeight;
             s32 ItemsIconWidth;
             s32 MousePosY;
-            gui::IGUIFont* Font;
+            gui::IGUIFont* m_font;
             gui::IGUISpriteBank* IconBank;
             gui::IGUIScrollBar* ScrollBar;
             u32 selectTime;
