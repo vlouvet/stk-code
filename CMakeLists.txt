@@ -115,6 +115,13 @@ if(EMSCRIPTEN)
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sASSERTIONS=1 --profiling")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
+    else()
+        # CMake's Release already implies -O3 -DNDEBUG; -flto on top is the
+        # release recommendation from Emscripten's optimization docs. Applied
+        # to both compile and link so cross-TU inlining can fire.
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -flto")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
     endif()
 
 endif()
