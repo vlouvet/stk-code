@@ -178,6 +178,15 @@ async def handle_client(client_reader, client_writer):
     if target.startswith("udp/"):
         is_udp = True
         target = target[len("udp/"):]
+
+    # Workaround for an STK-wasm sockaddr corruption: when getaddrinfo returns
+    # a fake-DNS address like "172.29.X.Y", the bytes that reach the WS URL
+    # look like [sin_port_hi, sin_port_lo, 0xac, 0x1d] — i.e. the IP ends in
+    # ".172.29". For STUN traffic that means we'd send to a junk IP. Redirect
+    # to a real STUN server so ConnectToServer can proceed.
+    if is_udp and target.endswith(".172.29:3478"):
+        print(f"[wsproxy] {peer} redirecting bogus STUN target {target} -> stun.cloudflare.com:3478", flush=True)
+        target = "stun.cloudflare.com:3478"
     if ":" not in target:
         client_writer.write(b"HTTP/1.1 400 Bad Request\r\n\r\nmissing host:port\n")
         await client_writer.drain()
@@ -236,11 +245,87 @@ class _UDPProto(asyncio.DatagramProtocol):
         self.transport = transport
 
     def datagram_received(self, data, addr):
-        print(f"[wsproxy] {self.peer} <- udp {addr} ({len(data)} bytes)", flush=True)
+        # For DNS, dump the first answer record so we can see what wasm gets.
+        extra = ""
+        if self.expected_addr[1] == 53 and len(data) >= 12:
+            extra = f" {_summarize_dns(data)}"
+        print(f"[wsproxy] {self.peer} <- udp {addr} ({len(data)} bytes){extra}", flush=True)
         self.queue.put_nowait(data)
 
     def error_received(self, exc):
         print(f"[wsproxy] {self.peer} udp error: {exc}", flush=True)
+
+
+def _read_dns_name(data, offset, depth=0):
+    """Decode a (possibly compressed) DNS name. Returns (name, next_offset_in_outer).
+    next_offset only reflects bytes consumed at the outermost level."""
+    if depth > 16:
+        return "", offset
+    labels = []
+    jumped = False
+    next_outer = offset
+    while True:
+        if offset >= len(data):
+            return "", next_outer
+        b = data[offset]
+        if b == 0:
+            offset += 1
+            if not jumped:
+                next_outer = offset
+            break
+        if (b & 0xC0) == 0xC0:
+            ptr = ((b & 0x3F) << 8) | data[offset + 1]
+            offset += 2
+            if not jumped:
+                next_outer = offset
+                jumped = True
+            sub, _ = _read_dns_name(data, ptr, depth + 1)
+            labels.append(sub)
+            break
+        labels.append(data[offset + 1 : offset + 1 + b].decode("latin-1", "replace"))
+        offset += 1 + b
+        if not jumped:
+            next_outer = offset
+    return ".".join(filter(None, labels)), next_outer
+
+
+def _summarize_dns(data):
+    """Best-effort DNS response summary for diagnostics. Returns a short str."""
+    try:
+        if len(data) < 12:
+            return ""
+        qdcount = (data[4] << 8) | data[5]
+        ancount = (data[6] << 8) | data[7]
+        i = 12
+        for _ in range(qdcount):
+            _, i = _read_dns_name(data, i)
+            i += 4  # qtype + qclass
+        out = []
+        for _ in range(ancount):
+            _, i = _read_dns_name(data, i)
+            if i + 10 > len(data):
+                break
+            rtype = (data[i] << 8) | data[i + 1]
+            rdlen = (data[i + 8] << 8) | data[i + 9]
+            rd_start = i + 10
+            if rtype == 1 and rdlen == 4:  # A
+                rd = data[rd_start : rd_start + 4]
+                out.append(f"A={rd[0]}.{rd[1]}.{rd[2]}.{rd[3]}")
+            elif rtype == 33 and rdlen >= 7:  # SRV
+                port = (data[rd_start + 4] << 8) | data[rd_start + 5]
+                tgt, _ = _read_dns_name(data, rd_start + 6)
+                out.append(f"SRV {tgt}:{port}")
+            elif rtype == 28 and rdlen == 16:  # AAAA
+                out.append("AAAA=" + ":".join(f"{data[rd_start+j]:02x}{data[rd_start+j+1]:02x}" for j in range(0, 16, 2)))
+            elif rtype == 5:  # CNAME
+                tgt, _ = _read_dns_name(data, rd_start)
+                out.append(f"CNAME={tgt}")
+            else:
+                out.append(f"type={rtype}")
+            i = rd_start + rdlen
+        return "[" + " ".join(out) + "]"
+    except Exception as e:
+        return f"[parse err: {e}]"
 
 
 def _is_port_preamble(data):
