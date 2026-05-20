@@ -707,6 +707,8 @@ bool KartModel::loadModels(const KartProperties &kart_properties)
     for (unsigned int i = 0; i < m_headlight_objects.size(); i++)
     {
         HeadlightObject& obj = m_headlight_objects[i];
+        if (obj.getFilename().empty())
+            continue;
         std::string full_name = kart_properties.getKartDir() + obj.getFilename();
         scene::IMesh* mesh = irr_driver->getMesh(full_name);
         if (!mesh)
