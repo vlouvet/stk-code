@@ -475,6 +475,14 @@ void init()
     resetEmptyFogColor();
     glBindBufferBase(GL_UNIFORM_BUFFER, 2, sp_fog_ubo);
 
+    // ShaderBasedRenderer::renderScene re-binds slots 0/1 each frame, but it
+    // only runs during gameplay. WebGL2 rejects draws when a uniform block
+    // resolves to slot 0 with no bound buffer (size 0 < UNIFORM_BLOCK_DATA_SIZE),
+    // so menu-state SP draws (kart preview, etc.) need something here too.
+    // Bind a default buffer per slot; gameplay rebinds anyway.
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, sp_mat_ubo[0][0]);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 1, SharedGPUObjects::getLightingDataUBO());
+
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
     for (unsigned st = ST_NEAREST; st < ST_COUNT; st++)
