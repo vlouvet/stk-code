@@ -93,3 +93,4 @@ lib/astc-encoder
 lib/shaderc
 
 .DS_Store
+.claude/remote.env
