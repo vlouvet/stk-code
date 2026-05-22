@@ -96,7 +96,17 @@ void ClientLobby::destroyBackgroundDownload()
         m_download_request = nullptr;
     }
     if (m_background_download.joinable())
+    {
+#ifdef __EMSCRIPTEN__
+        // pthread_join on the browser main thread freezes the page (see
+        // STKHost::stopListening for details). Detach; the lambda holds a
+        // shared_ptr to the request so destruction is safe once the worker
+        // unwinds on its own.
+        m_background_download.detach();
+#else
         m_background_download.join();
+#endif
+    }
 }
 
 // ============================================================================
@@ -525,7 +535,11 @@ void ClientLobby::update(int ticks)
             if (m_download_request && (m_download_request->isCancelled() ||
                 m_download_request->isDone()))
             {
+#ifdef __EMSCRIPTEN__
+                m_background_download.detach();
+#else
                 m_background_download.join();
+#endif
                 if (m_download_request->isDone())
                     doInstallAddonsPack();
                 m_download_request = nullptr;
@@ -1705,7 +1719,13 @@ void ClientLobby::handleClientCommand(const std::string& cmd)
             m_download_request = nullptr;
         }
         if (m_background_download.joinable())
+        {
+#ifdef __EMSCRIPTEN__
+            m_background_download.detach();
+#else
             m_background_download.join();
+#endif
+        }
     }
     else if (argv[0] == "installaddon" && argv.size() == 2)
         AddonsPack::install(argv[1]);

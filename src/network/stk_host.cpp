@@ -371,11 +371,21 @@ STKHost::~STKHost()
             enet_packet_destroy(packet);
         }
     }
+#ifndef __EMSCRIPTEN__
+    // See stopListening(): under Emscripten we cannot join the listening
+    // thread, so it may still hold pointers into m_network / ENet globals.
+    // Leak them rather than risking use-after-free in the detached worker.
     delete m_network;
     enet_deinitialize();
+#endif
     if (m_client_loop)
     {
+#ifndef __EMSCRIPTEN__
         m_client_loop_thread.join();
+#else
+        if (m_client_loop_thread.joinable())
+            m_client_loop_thread.detach();
+#endif
         delete m_client_loop;
     }
 }   // ~STKHost
@@ -780,7 +790,20 @@ void STKHost::stopListening()
     if (m_exit_timeout.load() == std::numeric_limits<uint64_t>::max())
         m_exit_timeout.store(0);
     if (m_listening_thread.joinable())
+    {
+#ifdef __EMSCRIPTEN__
+        // pthread_join on the browser main thread hangs: the worker is in a
+        // proxied syscall (enet_host_service → poll) waiting for main, while
+        // main is busy-waiting in futex_wait_main_browser_thread. The browser
+        // kills the script after ~10s. Detach instead — the worker exits on
+        // its own once it sees m_exit_timeout==0. ~STKHost intentionally skips
+        // tearing down m_network so the detached worker can keep touching it
+        // until it exits.
+        m_listening_thread.detach();
+#else
         m_listening_thread.join();
+#endif
+    }
 }   // stopListening
 
 // ----------------------------------------------------------------------------
