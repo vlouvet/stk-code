@@ -15,9 +15,11 @@ Binds to 127.0.0.1 only; nginx terminates wss:// and proxies to us.
 import asyncio
 import base64
 import hashlib
+import ipaddress
 import os
 import struct
 import sys
+import time
 from collections import defaultdict
 
 GUID = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -31,14 +33,53 @@ ALLOWED_TCP = {
     "addons.supertuxkart.net:80",
 }
 
-# Per-client cap (a "client" is the connecting IP reaching us from nginx —
-# in practice this is always 127.0.0.1, but the header X-Forwarded-For
-# carries the real one when nginx sets it).
-MAX_CONNS_PER_CLIENT = 64
-MAX_FRAME_BYTES = 256 * 1024  # 256 KB
+# UDP: deny low system ports except DNS (53) and STUN (3478). Everything
+# else we allow (game servers vary widely), but the resolved IP is also
+# checked against a private-IP blocklist below and per-client rate caps.
+UDP_PORT_ALLOWLIST_BELOW_1024 = {53, 3478}
+
+# Per-client cap. A "client" is the IP from X-Forwarded-For (set by nginx).
+MAX_CONNS_PER_CLIENT = 8           # was 64; an STK session uses ~4 UDP + a few TCP
+MAX_FRAME_BYTES = 64 * 1024        # 64 KB — STK never sends close to this
+MAX_PPS_PER_CLIENT = 200           # outbound UDP packets/sec per client (token bucket)
+MAX_SESSION_SECS = 30 * 60         # auto-close idle/aged sessions
 
 # Active connections per client IP (used for the cap above).
 _conn_counts = defaultdict(int)
+
+# Token buckets per client IP for outbound UDP rate limiting.
+# Stored as {ip: [tokens, last_refill_ts]}.
+_token_buckets = defaultdict(lambda: [MAX_PPS_PER_CLIENT, time.monotonic()])
+
+
+def _is_private_target(ip_str):
+    """Reject loopback, link-local, private (RFC1918), multicast, etc.
+    Public IPv4/IPv6 returns False (allowed)."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return True  # unparseable → reject by default
+    return (
+        ip.is_private          # 10/8, 172.16/12, 192.168/16, fc00::/7 etc.
+        or ip.is_loopback      # 127/8, ::1
+        or ip.is_link_local    # 169.254/16, fe80::/10
+        or ip.is_multicast     # 224/4, ff00::/8
+        or ip.is_unspecified   # 0.0.0.0, ::
+        or ip.is_reserved      # 240/4, etc.
+    )
+
+
+def _take_token(client_ip):
+    """Returns True if a token was available, False if rate-limited."""
+    bucket = _token_buckets[client_ip]
+    now = time.monotonic()
+    elapsed = now - bucket[1]
+    bucket[0] = min(MAX_PPS_PER_CLIENT, bucket[0] + elapsed * MAX_PPS_PER_CLIENT)
+    bucket[1] = now
+    if bucket[0] >= 1.0:
+        bucket[0] -= 1.0
+        return True
+    return False
 
 
 async def read_http_request(reader):
@@ -253,8 +294,9 @@ async def _get_or_create_shared_udp(client_ip):
     return shared
 
 
-async def ws_to_udp(reader, transport, target):
+async def ws_to_udp(reader, transport, target, client_ip):
     first = True
+    dropped = 0
     try:
         while True:
             fin, opcode, payload = await read_frame(reader)
@@ -268,7 +310,14 @@ async def ws_to_udp(reader, transport, target):
                     continue
                 first = False
                 if payload:
-                    transport.sendto(payload, target)
+                    if _take_token(client_ip):
+                        transport.sendto(payload, target)
+                    else:
+                        dropped += 1
+                        if dropped == 1 or dropped % 100 == 0:
+                            print(f"[wsproxy] {client_ip} UDP rate-limit drop "
+                                  f"(#{dropped} total to {target[0]}:{target[1]})",
+                                  flush=True)
     except (asyncio.IncompleteReadError, ConnectionResetError):
         pass
 
@@ -301,6 +350,14 @@ async def handle_udp_bridge(client_reader, client_writer, headers, host, port, p
         print(f"[wsproxy] {peer} redirect bogus STUN {host}:{port} -> stun.cloudflare.com:3478", flush=True)
         host, port = "stun.cloudflare.com", 3478
 
+    # Port policy.
+    if port < 1024 and port not in UDP_PORT_ALLOWLIST_BELOW_1024:
+        print(f"[wsproxy] {peer} UDP target port {port} DENIED (privileged)", flush=True)
+        client_writer.write(b"HTTP/1.1 403 Forbidden\r\n\r\nudp port denied\n")
+        await client_writer.drain()
+        client_writer.close()
+        return
+
     loop = asyncio.get_running_loop()
     # Resolve the target up front so we can route inbound packets by IP.
     # Force IPv4 — the proxy's shared socket is bound to 0.0.0.0 (AF_INET),
@@ -315,6 +372,16 @@ async def handle_udp_bridge(client_reader, client_writer, headers, host, port, p
         client_writer.close()
         return
     target_ip, target_port = infos[0][4][0], infos[0][4][1]
+
+    # SSRF/private-IP block — checked AFTER resolution so attackers can't bypass
+    # by passing a hostname whose A record points at 127.0.0.1, etc.
+    if _is_private_target(target_ip):
+        print(f"[wsproxy] {peer} UDP target {host} resolved to private IP {target_ip} DENIED", flush=True)
+        client_writer.write(b"HTTP/1.1 403 Forbidden\r\n\r\nprivate target denied\n")
+        await client_writer.drain()
+        client_writer.close()
+        return
+
     print(f"[wsproxy] {peer} udp {host}:{port} resolved to {target_ip}:{target_port}", flush=True)
 
     client_ip = peer[0] if peer else "unknown"
@@ -333,10 +400,14 @@ async def handle_udp_bridge(client_reader, client_writer, headers, host, port, p
     client_writer.write(handshake_response(headers["sec-websocket-key"]))
     await client_writer.drain()
 
-    t_ws = asyncio.create_task(ws_to_udp(client_reader, shared.transport, (target_ip, target_port)))
+    t_ws = asyncio.create_task(ws_to_udp(client_reader, shared.transport, (target_ip, target_port), client_ip))
     t_udp = asyncio.create_task(udp_to_ws(queue, client_writer))
+    # Hard session deadline so abandoned sockets don't accumulate.
+    t_deadline = asyncio.create_task(asyncio.sleep(MAX_SESSION_SECS))
     try:
-        done, pending = await asyncio.wait({t_ws, t_udp}, return_when=asyncio.FIRST_COMPLETED)
+        done, pending = await asyncio.wait({t_ws, t_udp, t_deadline}, return_when=asyncio.FIRST_COMPLETED)
+        if t_deadline in done:
+            print(f"[wsproxy] {peer} session deadline reached for {target_ip}:{target_port}", flush=True)
         queue.put_nowait(None)
         for t in pending:
             t.cancel()
@@ -345,6 +416,7 @@ async def handle_udp_bridge(client_reader, client_writer, headers, host, port, p
         shared.remove_route(target_ip, target_port)
         if shared.refcount == 0:
             _shared_udp.pop(client_ip, None)
+            _token_buckets.pop(client_ip, None)
             try:
                 shared.transport.close()
             except Exception:

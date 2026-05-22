@@ -1,0 +1,35 @@
+# /etc/fail2ban/jail.local
+
+[DEFAULT]
+bantime = 1h
+findtime = 10m
+maxretry = 5
+backend = systemd
+
+# --- SSH brute force ---
+[sshd]
+enabled = true
+filter = sshd
+maxretry = 4
+bantime = 24h
+
+# --- nginx: scanners hitting paths we 444 (.env, .git, phpunit, etc.) ---
+[stk-nginx-noscript]
+enabled = true
+port    = http,https
+filter  = stk-nginx-noscript
+logpath = /var/log/nginx/stk.access.log
+        /var/log/nginx/access.log
+maxretry = 2
+findtime = 5m
+bantime = 6h
+
+# --- nginx: clients hammering 429s (rate-limit violations) ---
+[stk-nginx-429]
+enabled = true
+port    = http,https
+filter  = stk-nginx-429
+logpath = /var/log/nginx/stk.access.log
+maxretry = 10
+findtime = 1m
+bantime = 1h

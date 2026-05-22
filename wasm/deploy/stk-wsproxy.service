@@ -1,0 +1,53 @@
+[Unit]
+Description=STK wasm WebSocket-to-TCP/UDP proxy (allowlisted, hardened)
+After=network.target
+
+[Service]
+Type=simple
+User=vlouvet
+Group=vlouvet
+WorkingDirectory=/home/vlouvet/stk-wasm
+ExecStart=/usr/bin/python3 /home/vlouvet/stk-wasm/wsproxy_prod.py
+Restart=on-failure
+RestartSec=5
+Environment=WSPROXY_BIND=127.0.0.1
+Environment=WSPROXY_PORT=8001
+
+# --- Sandbox ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/vlouvet/stk-wasm/logs
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @debug @mount @swap @reboot @raw-io
+
+# --- Network filter (kernel-level SSRF backstop) ---
+# Even if a logic bug in the proxy lets a private target through, the
+# kernel drops the packet. We allow 127.0.0.0/8 so nginx can talk to us
+# locally; deny RFC1918, link-local, CGNAT, multicast, broadcast,
+# benchmarking, IETF reserved, IPv6 ULA, IPv6 link-local, IPv6 multicast.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressAllow=127.0.0.0/8 ::1/128
+IPAddressDeny=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 198.18.0.0/15 192.0.0.0/24 192.0.2.0/24 198.51.100.0/24 203.0.113.0/24 224.0.0.0/4 240.0.0.0/4 255.255.255.255/32 fc00::/7 fe80::/10 ff00::/8
+
+# --- Resource caps ---
+MemoryMax=256M
+TasksMax=64
+LimitNOFILE=1024
+LimitNPROC=128
+
+[Install]
+WantedBy=multi-user.target
