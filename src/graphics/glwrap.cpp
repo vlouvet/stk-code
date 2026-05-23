@@ -186,7 +186,12 @@ ScopedGPUTimer::ScopedGPUTimer(GPUTimer &t) : timer(t)
     if (!UserConfigParams::m_profiler_enabled) return;
     if (profiler.isFrozen()) return;
     if (!timer.canSubmitQuery) return;
-#ifdef GL_TIME_ELAPSED
+#if defined(GL_TIME_ELAPSED) && !defined(__EMSCRIPTEN__)
+    // WebGL2 exposes EXT_disjoint_timer_query_webgl2 only behind getExtension(),
+    // and Firefox often refuses to expose it at all due to fingerprinting. STK
+    // would crash with "GLctx.disjointTimerQueryExt.createQueryEXT is not a
+    // function" the first time the benchmark activates the profiler. CPU-side
+    // profiling still works without GPU timer queries.
     if (!timer.initialised)
     {
         glGenQueries(1, &timer.query);
@@ -210,7 +215,7 @@ ScopedGPUTimer::~ScopedGPUTimer()
     if (!UserConfigParams::m_profiler_enabled) return;
     if (profiler.isFrozen()) return;
     if (!timer.canSubmitQuery) return;
-#ifdef GL_TIME_ELAPSED
+#if defined(GL_TIME_ELAPSED) && !defined(__EMSCRIPTEN__)
     glEndQuery(GL_TIME_ELAPSED);
     timer.canSubmitQuery = false;
 #endif
@@ -226,6 +231,10 @@ unsigned GPUTimer::elapsedTimeus()
 {
     if (!initialised)
         return 0;
+#ifdef __EMSCRIPTEN__
+    // See ScopedGPUTimer above — timer queries are disabled on wasm.
+    return 0;
+#else
     GLuint result;
     glGetQueryObjectuiv(query, GL_QUERY_RESULT_AVAILABLE, &result);
     if (result == GL_FALSE)
@@ -234,6 +243,7 @@ unsigned GPUTimer::elapsedTimeus()
     lastResult = result / 1000;
     canSubmitQuery = true;
     return result / 1000;
+#endif
 }
 
 void draw3DLine(const core::vector3df& start,
